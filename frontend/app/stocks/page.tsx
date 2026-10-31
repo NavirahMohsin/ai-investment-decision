@@ -1,5 +1,10 @@
-import { ModulePlaceholder } from "@/components/layout/module-placeholder";
+import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { StockExplorer } from "@/components/stocks/stock-explorer";
 
 export default function StocksPage() {
-  return <ModulePlaceholder title="Stock Explorer" description="Research companies listed on the NSE and BSE with a focused market workspace." />;
+  return (
+    <DashboardLayout title="Stock Explorer">
+      <StockExplorer />
+    </DashboardLayout>
+  );
 }
