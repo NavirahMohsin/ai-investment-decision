@@ -30,6 +30,43 @@ class MarketSnapshot(BaseModel):
 
 class MarketOverviewResponse(BaseModel):
     instruments: list[MarketSnapshot]
+    market_status: str = "UNKNOWN"
+    status_timezone: str = "Asia/Kolkata"
+    retrieved_at: datetime | None = None
+
+
+class MarketQuoteResponse(BaseModel):
+    symbol: str
+    provider_symbol: str
+    exchange: str
+    instrument_type: str
+    price: Decimal | None = None
+    previous_close: Decimal | None = None
+    open: Decimal | None = None
+    day_high: Decimal | None = None
+    day_low: Decimal | None = None
+    volume: int | None = None
+    absolute_change: Decimal | None = None
+    percentage_change: Decimal | None = None
+    currency: str | None = None
+    market_timestamp: datetime | None = None
+    retrieved_at: datetime | None = None
+    freshness: str
+    provider: str
+
+
+class MarketPricesResponse(BaseModel):
+    items: list[MarketQuoteResponse]
+    retrieved_at: datetime
+
+
+class MarketHealthResponse(BaseModel):
+    provider: str
+    status: str
+    market_status: str
+    checked_at: datetime
+    available_instruments: int
+    unavailable_instruments: list[str]
 
 
 class HistoricalPriceRecord(BaseModel):
@@ -83,6 +120,14 @@ class TechnicalIndicatorRecord(BaseModel):
     bollinger_upper: float | None
     bollinger_lower: float | None
     atr: float | None
+    vwap: float | None = None
+    adx: float | None = None
+    supertrend: float | None = None
+    support: float | None = None
+    resistance: float | None = None
+    volume_ratio: float | None = None
+    trend: str = "neutral"
+    signal: str = "hold"
 
 
 class TechnicalIndicatorsResponse(BaseModel):
@@ -124,3 +169,61 @@ class IngestionRunResponse(BaseModel):
 class IngestionOptions(BaseModel):
     start_date: date = Field(...)
     end_date: date = Field(...)
+
+
+class MarketRefreshResponse(BaseModel):
+    status: str
+    provider: str
+    instruments_processed: int
+    successful_runs: int
+    failed_runs: int
+    started_at: datetime
+    completed_at: datetime
+    message: str
+
+
+class MarketSnapshotRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    company_id: int
+    price: Decimal
+    previous_close: Decimal | None
+    open: Decimal | None
+    high: Decimal | None
+    low: Decimal | None
+    volume: int | None
+    absolute_change: Decimal | None
+    percentage_change: Decimal | None
+    market_timestamp: datetime | None
+    retrieved_at: datetime
+    freshness: str
+    provider: str
+    created_at: datetime
+
+
+class MarketSnapshotsResponse(BaseModel):
+    symbol: str
+    snapshots: list[MarketSnapshotRecord]
+    total_count: int
+
+
+class MarketDataUpdateRunRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    run_type: str
+    status: str
+    instruments_processed: int
+    successful_count: int
+    failed_count: int
+    failed_symbols: str | None
+    trigger_source: str
+    started_at: datetime
+    completed_at: datetime | None
+    error_message: str | None
+
+
+class MarketDataUpdateRunsResponse(BaseModel):
+    runs: list[MarketDataUpdateRunRecord]
+    total_count: int

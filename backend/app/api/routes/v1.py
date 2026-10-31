@@ -25,6 +25,10 @@ from app.schemas.market import (
     IndicatorParametersResponse,
     IngestionRunResponse,
     MarketOverviewResponse,
+    MarketHealthResponse,
+    MarketPricesResponse,
+    MarketQuoteResponse,
+    MarketRefreshResponse,
     MarketSnapshot,
     TechnicalIndicatorsResponse,
 )
@@ -44,12 +48,22 @@ from app.services.indicators import (
     IndicatorParameters,
     calculate_indicators,
 )
+from app.services.market_data import (
+    Freshness,
+    get_market_movers,
+    market_session,
+    quote_response_fields,
+    store_market_snapshot,
+)
+from app.services.signals import TechnicalSignal, TrendAnalysis, classify_trend, generate_signals
 from app.services.news.http_client import SafeFeedHttpClient
 from app.services.news.ingestion import ingest_news_source
 from app.services.news.source_registry import (
     ContentPolicyStatus,
     get_source,
 )
+from app.services.providers.yahoo import YahooFinanceProvider
+from app.services.refresh import refresh_market_data
 
 router = APIRouter(prefix="/api/v1")
 _news_ingestion_locks: dict[str, Lock] = {}
@@ -470,7 +484,105 @@ def market_overview(db: Session = Depends(get_db)):
             instruments.append(snapshot(db, company))
         else:
             instruments.append(MarketSnapshot(symbol=symbol, available=False))
-    return MarketOverviewResponse(instruments=instruments)
+    return MarketOverviewResponse(
+        instruments=instruments,
+        market_status=market_session().value,
+        retrieved_at=datetime.now(timezone.utc),
+    )
+
+
+def _quote_for_company(company: Company) -> MarketQuoteResponse:
+    try:
+        fields = quote_response_fields(
+            YahooFinanceProvider().quote(company.provider_symbol)
+        )
+    except Exception:
+        return MarketQuoteResponse(
+            symbol=company.symbol,
+            provider_symbol=company.provider_symbol,
+            exchange=company.exchange,
+            instrument_type=company.instrument_type,
+            freshness=Freshness.UNAVAILABLE.value,
+            provider=YahooFinanceProvider.name,
+        )
+    return MarketQuoteResponse(
+        symbol=company.symbol,
+        provider_symbol=company.provider_symbol,
+        exchange=company.exchange,
+        instrument_type=company.instrument_type,
+        **fields,
+    )
+
+
+@router.get("/market/quotes/{symbol}", response_model=MarketQuoteResponse)
+def market_quote(symbol: str, db: Session = Depends(get_db)):
+    company = db.scalar(
+        select(Company).where(
+            Company.symbol == symbol.upper(),
+            Company.is_active.is_(True),
+        )
+    )
+    if company is None:
+        raise HTTPException(status_code=404, detail=f"Unknown instrument: {symbol}")
+    return _quote_for_company(company)
+
+
+@router.get("/market/prices", response_model=MarketPricesResponse)
+def market_prices(
+    symbol: str | None = None,
+    exchange: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = select(Company).where(Company.is_active.is_(True)).order_by(Company.symbol)
+    if symbol:
+        query = query.where(Company.symbol == symbol.upper())
+    if exchange:
+        query = query.where(Company.exchange == exchange.upper())
+    companies_to_quote = list(db.scalars(query))
+    if symbol and not companies_to_quote:
+        raise HTTPException(status_code=404, detail=f"Unknown instrument: {symbol}")
+    return MarketPricesResponse(
+        items=[_quote_for_company(company) for company in companies_to_quote],
+        retrieved_at=datetime.now(timezone.utc),
+    )
+
+
+@router.get("/market/health", response_model=MarketHealthResponse)
+def market_health(db: Session = Depends(get_db)):
+    companies_to_check = list(
+        db.scalars(select(Company).where(Company.is_active.is_(True)))
+    )
+    unavailable: list[str] = []
+    available = 0
+    for company in companies_to_check:
+        if _quote_for_company(company).freshness == Freshness.UNAVAILABLE.value:
+            unavailable.append(company.symbol)
+        else:
+            available += 1
+    return MarketHealthResponse(
+        provider=YahooFinanceProvider.name,
+        status="healthy" if available else "unavailable",
+        market_status=market_session().value,
+        checked_at=datetime.now(timezone.utc),
+        available_instruments=available,
+        unavailable_instruments=unavailable,
+    )
+
+
+@router.post("/market/refresh", response_model=MarketRefreshResponse)
+def market_refresh(symbol: str | None = None, db: Session = Depends(get_db)):
+    started_at = datetime.now(timezone.utc)
+    result = refresh_market_data(db, symbol.upper() if symbol else None)
+    completed_at = datetime.now(timezone.utc)
+    if result["status"] == "already_running":
+        raise HTTPException(status_code=409, detail="Market refresh is already running")
+    return MarketRefreshResponse(
+        **result,
+        provider=YahooFinanceProvider.name,
+        started_at=started_at,
+        completed_at=completed_at,
+        message="Market history refresh completed",
+    )
 
 
 @router.get("/stocks/{symbol}/history", response_model=HistoricalPriceResponse)
@@ -481,8 +593,8 @@ def stock_history(
     interval: str = Query("1d"),
     db: Session = Depends(get_db),
 ):
-    if interval != "1d":
-        raise HTTPException(status_code=400, detail="Only daily interval 1d is supported")
+    if interval not in {"1d", "1wk", "1mo"}:
+        raise HTTPException(status_code=400, detail="interval must be one of 1d, 1wk, or 1mo")
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
     company = db.scalar(select(Company).where(Company.symbol == symbol.upper(), Company.is_active.is_(True)))
@@ -494,6 +606,30 @@ def stock_history(
     if end_date:
         query = query.where(DailyMarketData.trading_date <= end_date)
     records = list(db.scalars(query))
+    if interval != "1d":
+        grouped: dict[date, list[DailyMarketData]] = {}
+        for record in records:
+            bucket = (
+                record.trading_date - timedelta(days=record.trading_date.weekday())
+                if interval == "1wk"
+                else record.trading_date.replace(day=1)
+            )
+            grouped.setdefault(bucket, []).append(record)
+        records = [
+            DailyMarketData(
+                trading_date=bucket,
+                open=values[0].open,
+                high=max(item.high for item in values),
+                low=min(item.low for item in values),
+                close=values[-1].close,
+                adjusted_close=values[-1].adjusted_close,
+                volume=sum(item.volume for item in values),
+                dividends=sum((item.dividends or Decimal("0") for item in values), Decimal("0")),
+                stock_splits=values[-1].stock_splits,
+                provider=values[-1].provider,
+            )
+            for bucket, values in sorted(grouped.items())
+        ]
     return HistoricalPriceResponse(symbol=company.symbol, provider_symbol=company.provider_symbol, instrument_type=company.instrument_type, exchange=company.exchange, source="Yahoo Finance", records=records)
 
 
@@ -575,6 +711,156 @@ def stock_indicators(
     )
 
 
+@router.get("/market/movers")
+def market_movers(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):
+    """Get top gainers, losers, and most active stocks."""
+    return get_market_movers(db, limit)
+
+
+@router.get("/stocks/{symbol}/signals")
+def stock_signals(symbol: str, db: Session = Depends(get_db)):
+    """Generate technical signals for a stock."""
+    company = db.scalar(
+        select(Company).where(
+            Company.symbol == symbol.upper(),
+            Company.is_active.is_(True),
+        )
+    )
+    if company is None:
+        raise HTTPException(status_code=404, detail=f"Unknown instrument: {symbol}")
+    
+    # Get historical data
+    rows = list(
+        db.scalars(
+            select(DailyMarketData)
+            .where(DailyMarketData.company_id == company.id)
+            .order_by(DailyMarketData.trading_date)
+        )
+    )
+    
+    if len(rows) < 2:
+        return {
+            "symbol": company.symbol,
+            "signals": [],
+            "trend": None,
+            "message": "Insufficient historical data for signal generation",
+        }
+    
+    parameters = IndicatorParameters()
+    signals = generate_signals(rows, parameters)
+    
+    # Get trend classification
+    records, _, _, _ = calculate_indicators(rows, parameters)
+    trend = None
+    if records:
+        latest = records[-1]
+        if latest["close"] is not None:
+            trend_analysis = classify_trend(
+                current_price=latest["close"],
+                ema=latest["ema"],
+                rsi=latest["rsi"],
+                adx=latest["adx"],
+                macd_histogram=latest["macd_histogram"],
+            )
+            trend = {
+                "classification": trend_analysis.classification,
+                "explanation": trend_analysis.explanation,
+                "current_price": trend_analysis.current_price,
+                "ema": trend_analysis.ema_value,
+                "rsi": trend_analysis.rsi_value,
+                "adx": trend_analysis.adx_value,
+                "macd_histogram": trend_analysis.macd_histogram,
+            }
+    
+    return {
+        "symbol": company.symbol,
+        "provider_symbol": company.provider_symbol,
+        "exchange": company.exchange,
+        "signals": [
+            {
+                "signal_type": signal.signal_type,
+                "timestamp": signal.timestamp.isoformat(),
+                "price": signal.price,
+                "explanation": signal.explanation,
+                "indicator_values": signal.indicator_values,
+                "strength": signal.strength,
+            }
+            for signal in signals
+        ],
+        "trend": trend,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @router.get("/ingestion/runs", response_model=list[IngestionRunResponse])
 def ingestion_runs(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
     return list(db.scalars(select(IngestionRun).order_by(desc(IngestionRun.started_at)).limit(limit)))
+
+
+@router.get("/market/snapshots/{symbol}")
+def market_snapshots(
+    symbol: str,
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """Get historical market snapshots for a symbol."""
+    from app.db.models import MarketSnapshot
+    from app.schemas.market import MarketSnapshotsResponse, MarketSnapshotRecord
+    
+    company = db.scalar(
+        select(Company).where(
+            Company.symbol == symbol.upper(),
+            Company.is_active.is_(True),
+        )
+    )
+    if company is None:
+        raise HTTPException(status_code=404, detail=f"Unknown instrument: {symbol}")
+    
+    snapshots = list(
+        db.scalars(
+            select(MarketSnapshot)
+            .where(MarketSnapshot.company_id == company.id)
+            .order_by(desc(MarketSnapshot.retrieved_at))
+            .limit(limit)
+        )
+    )
+    
+    total = db.scalar(
+        select(func.count(MarketSnapshot.id))
+        .where(MarketSnapshot.company_id == company.id)
+    ) or 0
+    
+    return MarketSnapshotsResponse(
+        symbol=company.symbol,
+        snapshots=[MarketSnapshotRecord.model_validate(s) for s in snapshots],
+        total_count=total,
+    )
+
+
+@router.get("/market/update-runs")
+def market_update_runs(
+    run_type: str | None = Query(None, pattern="^(quotes|historical)$"),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db)
+):
+    """Get market data update run history."""
+    from app.db.models import MarketDataUpdateRun
+    from app.schemas.market import MarketDataUpdateRunsResponse, MarketDataUpdateRunRecord
+    
+    query = select(MarketDataUpdateRun).order_by(desc(MarketDataUpdateRun.started_at))
+    
+    if run_type:
+        query = query.where(MarketDataUpdateRun.run_type == run_type)
+    
+    runs = list(db.scalars(query.limit(limit)))
+    
+    total_query = select(func.count(MarketDataUpdateRun.id))
+    if run_type:
+        total_query = total_query.where(MarketDataUpdateRun.run_type == run_type)
+    
+    total = db.scalar(total_query) or 0
+    
+    return MarketDataUpdateRunsResponse(
+        runs=[MarketDataUpdateRunRecord.model_validate(r) for r in runs],
+        total_count=total,
+    )

@@ -13,6 +13,44 @@ export interface Company {
   is_active: boolean;
 }
 
+export interface MarketSnapshot {
+  symbol: string;
+  available: boolean;
+  trading_date: string | null;
+  latest_close: string | number | null;
+  previous_close: string | number | null;
+  absolute_change: string | number | null;
+  percentage_change: string | number | null;
+  provider: string | null;
+}
+
+export interface MarketOverviewResponse {
+  instruments: MarketSnapshot[];
+  market_status: string;
+  status_timezone: string;
+  retrieved_at: string | null;
+}
+
+export interface MarketQuote {
+  symbol: string;
+  provider_symbol: string;
+  exchange: string;
+  instrument_type: string;
+  price: string | number | null;
+  previous_close: string | number | null;
+  absolute_change: string | number | null;
+  percentage_change: string | number | null;
+  market_timestamp: string | null;
+  retrieved_at: string | null;
+  freshness: string;
+  provider: string;
+}
+
+export interface MarketPricesResponse {
+  items: MarketQuote[];
+  retrieved_at: string;
+}
+
 export interface BackendHealth {
   status: string;
   application: string;
@@ -159,6 +197,14 @@ export interface TechnicalIndicatorRecord {
   bollinger_upper: number | null;
   bollinger_lower: number | null;
   atr: number | null;
+  vwap?: number | null;
+  adx?: number | null;
+  supertrend?: number | null;
+  support?: number | null;
+  resistance?: number | null;
+  volume_ratio?: number | null;
+  trend?: string;
+  signal?: string;
 }
 
 export interface TechnicalIndicatorsResponse {
@@ -420,6 +466,34 @@ export async function fetchCompanies(): Promise<Company[]> {
   return payload;
 }
 
+export async function fetchMarketOverview(): Promise<MarketOverviewResponse> {
+  const response = await fetch(`${API_URL}/api/v1/market/overview`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Unable to load market overview (${response.status}).`);
+  }
+
+  return response.json() as Promise<MarketOverviewResponse>;
+}
+
+export async function fetchMarketQuote(symbol: string): Promise<MarketQuote> {
+  const response = await fetch(`${API_URL}/api/v1/market/quotes/${encodeURIComponent(symbol)}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Unable to load quote (${response.status}).`);
+  }
+
+  return response.json() as Promise<MarketQuote>;
+}
+
+export async function fetchMarketPrices(): Promise<MarketPricesResponse> {
+  const response = await fetch(`${API_URL}/api/v1/market/prices`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Unable to load market prices (${response.status}).`);
+  return response.json() as Promise<MarketPricesResponse>;
+}
+
 export async function fetchNews(options: FetchNewsOptions = {}): Promise<NewsArticlesResponse> {
   const params = new URLSearchParams({
     page: String(options.page ?? 1),
@@ -575,11 +649,12 @@ export async function fetchStockHistory(
   symbol: string,
   startDate: string,
   endDate: string,
+  interval: "1d" | "1wk" | "1mo" = "1d",
 ): Promise<HistoricalPriceResponse> {
   const params = new URLSearchParams({
     start_date: startDate,
     end_date: endDate,
-    interval: "1d",
+    interval,
   });
   const response = await fetch(
     `${API_URL}/api/v1/stocks/${encodeURIComponent(symbol)}/history?${params.toString()}`,

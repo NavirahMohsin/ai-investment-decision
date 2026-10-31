@@ -167,6 +167,47 @@ class CompanyAlias(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now, onupdate=utc_now)
 
 
+class MarketSnapshot(Base):
+    __tablename__ = "market_snapshots"
+    __table_args__ = (
+        Index("ix_market_snapshots_company_retrieved", "company_id", "retrieved_at"),
+        Index("ix_market_snapshots_retrieved_at", "retrieved_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
+    previous_close: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    open: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    high: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    low: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    volume: Mapped[int | None] = mapped_column(Integer)
+    absolute_change: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    percentage_change: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    market_timestamp: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    retrieved_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    freshness: Mapped[str] = mapped_column(String(20), nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+
+
+class MarketDataUpdateRun(Base):
+    """Track market data update runs."""
+    __tablename__ = "market_data_update_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'quotes' or 'historical'
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # 'running', 'completed', 'partial', 'failed'
+    instruments_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    successful_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_symbols: Mapped[str | None] = mapped_column(String(500))  # Comma-separated
+    trigger_source: Mapped[str] = mapped_column(String(20), nullable=False)  # 'scheduled' or 'manual'
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    error_message: Mapped[str | None] = mapped_column(String(500))
+
+
 class NewsIngestionRun(Base):
     __tablename__ = "news_ingestion_runs"
     __table_args__ = (

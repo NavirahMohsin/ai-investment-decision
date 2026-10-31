@@ -55,7 +55,6 @@ def ingest_instrument(
                 select(DailyMarketData).where(
                     DailyMarketData.company_id == company.id,
                     DailyMarketData.provider == provider.name,
-                    DailyMarketData.trading_date.between(start_date, end_date),
                 )
             )
         }

@@ -6,7 +6,7 @@ import { ArrowLeft, CalendarDays, CircleAlert, Database, RefreshCw } from "lucid
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { fetchCompanies, fetchStockHistory, fetchStockIndicators, type Company, type FetchStockIndicatorsOptions, type HistoricalPriceRecord, type HistoricalPriceResponse, type TechnicalIndicatorsResponse } from "@/lib/api";
+import { fetchCompanies, fetchMarketQuote, fetchStockHistory, fetchStockIndicators, type Company, type FetchStockIndicatorsOptions, type HistoricalPriceRecord, type HistoricalPriceResponse, type MarketQuote, type TechnicalIndicatorsResponse } from "@/lib/api";
 import { ClosingPriceChart, VolumeChart } from "@/components/stocks/historical-chart";
 import { IndicatorCharts } from "@/components/stocks/indicator-chart/indicator-charts";
 import { IndicatorControls, type IndicatorVisibility } from "@/components/stocks/indicator-chart/indicator-controls";
@@ -51,6 +51,7 @@ function SummaryValue({ label, value }: { label: string; value: string }) {
 export function StockDetail({ symbol }: { symbol: string }) {
   const [company, setCompany] = useState<Company | null>(null);
   const [history, setHistory] = useState<HistoricalPriceResponse | null>(null);
+  const [quote, setQuote] = useState<MarketQuote | null>(null);
   const [indicators, setIndicators] = useState<TechnicalIndicatorsResponse | null>(null);
   const [indicatorOptions, setIndicatorOptions] = useState<FetchStockIndicatorsOptions>({});
   const [indicatorVisibility, setIndicatorVisibility] = useState<IndicatorVisibility>({
@@ -109,6 +110,20 @@ export function StockDetail({ symbol }: { symbol: string }) {
       if (requestId === indicatorRequestRef.current) setIndicatorLoading(false);
     }
   }, [indicatorOptions, symbol]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchMarketQuote(symbol)
+      .then((result) => {
+        if (active) setQuote(result);
+      })
+      .catch(() => {
+        if (active) setQuote(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [symbol]);
 
   useEffect(() => {
     let active = true;
@@ -251,6 +266,14 @@ export function StockDetail({ symbol }: { symbol: string }) {
               </div>
             </CardContent>
           </Card>
+          <Card className="border-border/70 bg-card/80 shadow-none">
+            <CardContent className="grid gap-4 p-5 sm:grid-cols-4 sm:px-6">
+              <SummaryValue label="Yahoo quote" value={formatPrice(quote?.price)} />
+              <SummaryValue label="Change" value={quote?.percentage_change == null ? "—" : `${Number(quote.percentage_change).toFixed(2)}%`} />
+              <SummaryValue label="Freshness" value={quote?.freshness ?? "UNAVAILABLE"} />
+              <SummaryValue label="Provider timestamp" value={quote?.market_timestamp ? new Date(quote.market_timestamp).toLocaleString("en-IN") : "—"} />
+            </CardContent>
+          </Card>
           {history.records.length === 0 ? (
             <Card className="border-border/70 bg-card/80 shadow-none">
               <CardContent className="flex min-h-56 items-center justify-center px-6 text-center text-sm text-muted-foreground">No historical data is available for the selected range.</CardContent>
@@ -288,6 +311,16 @@ export function StockDetail({ symbol }: { symbol: string }) {
                     ? <Card className="border-border/70 bg-card/80 shadow-none"><CardContent className="p-6 text-center text-sm text-muted-foreground">No technical-indicator data is available for this range.</CardContent></Card>
                     : <IndicatorCharts history={history} records={indicators.records} visibility={indicatorVisibility} selectedIndex={selectedIndicatorIndex} onSelectionChange={setSelectedIndicatorIndex} />
                 )}
+                {!indicatorLoading && !indicatorError && indicators?.records.length ? (
+                  <Card className="border-border/70 bg-card/80 shadow-none">
+                    <CardContent className="grid gap-4 p-5 sm:grid-cols-4 sm:px-6">
+                      <SummaryValue label="Trend" value={indicators.records.at(-1)?.trend ?? "neutral"} />
+                      <SummaryValue label="Signal" value={indicators.records.at(-1)?.signal ?? "hold"} />
+                      <SummaryValue label="ADX" value={indicators.records.at(-1)?.adx == null ? "—" : indicators.records.at(-1)!.adx!.toFixed(2)} />
+                      <SummaryValue label="Volume ratio" value={indicators.records.at(-1)?.volume_ratio == null ? "—" : `${indicators.records.at(-1)!.volume_ratio!.toFixed(2)}x`} />
+                    </CardContent>
+                  </Card>
+                ) : null}
               </section>
               <Card className="border-border/70 bg-card/80 shadow-none">
                 <CardContent className="grid gap-5 p-5 sm:grid-cols-4 sm:px-6">

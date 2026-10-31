@@ -12,7 +12,7 @@ import {
   Search,
   Tag,
 } from "lucide-react";
-import { fetchCompanies, type Company } from "@/lib/api";
+import { fetchCompanies, fetchMarketPrices, type Company, type MarketQuote } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,7 +21,7 @@ function formatInstrumentType(value: string) {
   return value.replace(/[_-]/g, " ");
 }
 
-function StockCard({ company }: { company: Company }) {
+function StockCard({ company, quote }: { company: Company; quote?: MarketQuote }) {
   return (
     <Link href={`/stocks/${encodeURIComponent(company.symbol)}`} className="group block">
       <Card className="h-full border-border/70 bg-card/80 shadow-none transition-colors group-hover:border-primary/40 group-hover:bg-card">
@@ -51,6 +51,16 @@ function StockCard({ company }: { company: Company }) {
               <p className="mt-1 text-foreground">{company.sector}</p>
             </div>
           )}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <p className="text-muted-foreground">Latest quote</p>
+            <p className="mt-1 text-foreground">{quote?.price == null ? "Unavailable" : Number(quote.price).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Freshness</p>
+            <p className="mt-1 text-foreground">{quote?.freshness ?? "Unavailable"}</p>
+          </div>
         </div>
         <div className="mt-4 flex items-center gap-1 text-xs text-cyan-300 opacity-0 transition-opacity group-hover:opacity-100">
           View historical data <ArrowUpRight className="size-3.5" />
@@ -86,6 +96,7 @@ function LoadingGrid() {
 
 export function StockExplorer() {
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [quotes, setQuotes] = useState<Record<string, MarketQuote>>({});
   const [search, setSearch] = useState("");
   const [exchange, setExchange] = useState("");
   const [instrumentType, setInstrumentType] = useState("");
@@ -123,6 +134,20 @@ export function StockExplorer() {
         }
       });
 
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetchMarketPrices()
+      .then((result) => {
+        if (active) setQuotes(Object.fromEntries(result.items.map((quote) => [quote.symbol, quote])));
+      })
+      .catch(() => {
+        if (active) setQuotes({});
+      });
     return () => {
       active = false;
     };
@@ -260,7 +285,7 @@ export function StockExplorer() {
 
       {!loading && !error && filteredCompanies.length > 0 && (
         <section aria-label="Company catalogue" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filteredCompanies.map((company) => <StockCard key={company.id} company={company} />)}
+          {filteredCompanies.map((company) => <StockCard key={company.id} company={company} quote={quotes[company.symbol]} />)}
         </section>
       )}
     </div>

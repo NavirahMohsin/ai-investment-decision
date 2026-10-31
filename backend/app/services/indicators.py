@@ -163,6 +163,83 @@ def calculate_indicators(
         min_periods=parameters.atr_period,
     ).mean()
 
+    typical_price = (frame["high"] + frame["low"] + frame["close"]) / 3
+    cumulative_volume = frame["volume"].replace(0, np.nan).cumsum()
+    frame["vwap"] = (typical_price * frame["volume"]).cumsum() / cumulative_volume
+
+    upward_move = frame["high"].diff()
+    downward_move = -frame["low"].diff()
+    plus_dm = upward_move.where(
+        (upward_move > downward_move) & (upward_move > 0), 0.0
+    )
+    minus_dm = downward_move.where(
+        (downward_move > upward_move) & (downward_move > 0), 0.0
+    )
+    smoothed_range = true_range.ewm(
+        alpha=1 / parameters.atr_period,
+        adjust=False,
+        min_periods=parameters.atr_period,
+    ).mean()
+    plus_di = 100 * plus_dm.ewm(
+        alpha=1 / parameters.atr_period,
+        adjust=False,
+        min_periods=parameters.atr_period,
+    ).mean() / smoothed_range
+    minus_di = 100 * minus_dm.ewm(
+        alpha=1 / parameters.atr_period,
+        adjust=False,
+        min_periods=parameters.atr_period,
+    ).mean() / smoothed_range
+    directional_sum = (plus_di + minus_di).replace(0, np.nan)
+    directional_index = 100 * (plus_di - minus_di).abs() / directional_sum
+    frame["adx"] = directional_index.ewm(
+        alpha=1 / parameters.atr_period,
+        adjust=False,
+        min_periods=parameters.atr_period,
+    ).mean()
+
+    multiplier = 3.0
+    midpoint = (frame["high"] + frame["low"]) / 2
+    upper_band = midpoint + multiplier * frame["atr"]
+    lower_band = midpoint - multiplier * frame["atr"]
+    supertrend = pd.Series(np.nan, index=frame.index, dtype=float)
+    direction = pd.Series(1, index=frame.index, dtype=int)
+    for index in frame.index:
+        if index == frame.index[0]:
+            supertrend.loc[index] = upper_band.loc[index]
+            continue
+        previous = index - 1
+        if frame.loc[index, "close"] > upper_band.loc[previous]:
+            direction.loc[index] = 1
+        elif frame.loc[index, "close"] < lower_band.loc[previous]:
+            direction.loc[index] = -1
+        else:
+            direction.loc[index] = direction.loc[previous]
+        supertrend.loc[index] = (
+            lower_band.loc[index] if direction.loc[index] == 1 else upper_band.loc[index]
+        )
+    frame["supertrend"] = supertrend
+    frame["support"] = frame["low"].rolling(20, min_periods=1).min()
+    frame["resistance"] = frame["high"].rolling(20, min_periods=1).max()
+    frame["volume_average"] = frame["volume"].rolling(20, min_periods=1).mean()
+    frame["volume_ratio"] = frame["volume"] / frame["volume_average"].replace(0, np.nan)
+    frame["trend"] = np.select(
+        [
+            (selected > frame["ema"]) & (frame["adx"] >= 20),
+            (selected < frame["ema"]) & (frame["adx"] >= 20),
+        ],
+        ["bullish", "bearish"],
+        default="neutral",
+    )
+    frame["signal"] = np.select(
+        [
+            (selected > frame["ema"]) & (frame["macd_histogram"] > 0),
+            (selected < frame["ema"]) & (frame["macd_histogram"] < 0),
+        ],
+        ["buy", "sell"],
+        default="hold",
+    )
+
     output = frame
     if start_date is not None:
         output = output[output["trading_date"] >= start_date]
@@ -184,6 +261,12 @@ def calculate_indicators(
                 "bollinger_upper": _finite_or_none(row["bollinger_upper"]),
                 "bollinger_lower": _finite_or_none(row["bollinger_lower"]),
                 "atr": _finite_or_none(row["atr"]),
+                "vwap": _finite_or_none(row["vwap"]),
+                "adx": _finite_or_none(row["adx"]),
+                "supertrend": _finite_or_none(row["supertrend"]),
+                "support": _finite_or_none(row["support"]),
+                "resistance": _finite_or_none(row["resistance"]),
+                "volume_ratio": _finite_or_none(row["volume_ratio"]),
             }
         )
     available_dates = frame["trading_date"]
