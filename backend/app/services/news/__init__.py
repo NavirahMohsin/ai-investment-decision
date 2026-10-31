@@ -1,0 +1,152 @@
+from app.services.news.deduplication import (
+    content_hash,
+    normalize_url,
+    url_hash,
+)
+from app.services.news.feed_parser import FeedParseError, parse_feed
+from app.services.news.http_client import (
+    FeedContentTypeError,
+    FeedFetchError,
+    FeedHTTPStatusError,
+    FeedRedirectError,
+    FeedResponseTooLargeError,
+    FeedTimeoutError,
+    InvalidFeedURLError,
+    SafeFeedHttpClient,
+)
+from app.services.news.article_links import (
+    ArticleLinkError,
+    link_article_companies,
+)
+from app.services.news.article_matching import (
+    ArticleDuplicateResult,
+    detect_cross_source_duplicate,
+    find_cross_source_duplicates,
+)
+from app.services.news.company_aliases import (
+    CompanyAliasError,
+    CompanyNotFoundError,
+    EmptyCompanyAliasError,
+    add_company_alias,
+    add_alias,
+    deactivate_alias,
+    deactivate_company_alias,
+    get_active_aliases,
+    get_active_company_aliases,
+)
+from app.services.news.entity_normalization import normalize_company_name
+from app.services.news.entity_matching import (
+    ALIAS_CONFIDENCE,
+    NAME_CONFIDENCE,
+    SYMBOL_CONFIDENCE,
+    CompanyMatch,
+    match_article_companies,
+    match_company,
+)
+from app.services.news.ingestion import (
+    NewsContentPolicyError,
+    NewsIngestionError,
+    NewsIngestionResult,
+    NewsSourceInactiveError,
+    NewsSourceNotEnabledError,
+    NewsSourceNotFoundError,
+    ingest_news_source,
+)
+from app.services.news.providers import (
+    FeedParser,
+    HttpClient,
+    NewsProvider,
+    RawFeed,
+    RssAtomProvider,
+)
+from app.services.news.source_providers import (
+    UnsupportedNewsSourceTypeError,
+    build_news_provider,
+)
+from app.services.news.source_registry import (
+    ContentPolicyStatus,
+    NewsSourceConfig,
+    get_all_sources,
+    get_enabled_sources,
+    get_source,
+    get_source_configs_for_registration,
+    to_news_source_create,
+)
+from app.services.news.source_registration import (
+    NewsSourceActivationError,
+    NewsSourceRegistrationResult,
+    activate_news_source,
+    register_news_source,
+    register_news_sources,
+)
+from app.services.news.types import (
+    NormalizedNewsArticle,
+    PersistenceValidationError,
+    validate_article_for_persistence,
+)
+
+__all__ = [
+    "FeedParseError",
+    "FeedContentTypeError",
+    "FeedFetchError",
+    "FeedHTTPStatusError",
+    "FeedRedirectError",
+    "FeedResponseTooLargeError",
+    "FeedTimeoutError",
+    "FeedParser",
+    "HttpClient",
+    "NewsProvider",
+    "NormalizedNewsArticle",
+    "InvalidFeedURLError",
+    "ALIAS_CONFIDENCE",
+    "ArticleDuplicateResult",
+    "ArticleLinkError",
+    "CompanyAliasError",
+    "CompanyMatch",
+    "CompanyNotFoundError",
+    "EmptyCompanyAliasError",
+    "NewsContentPolicyError",
+    "NewsIngestionError",
+    "NewsIngestionResult",
+    "NewsSourceInactiveError",
+    "NewsSourceNotEnabledError",
+    "NewsSourceNotFoundError",
+    "NAME_CONFIDENCE",
+    "ContentPolicyStatus",
+    "NewsSourceConfig",
+    "NewsSourceActivationError",
+    "NewsSourceRegistrationResult",
+    "PersistenceValidationError",
+    "RawFeed",
+    "RssAtomProvider",
+    "SafeFeedHttpClient",
+    "UnsupportedNewsSourceTypeError",
+    "build_news_provider",
+    "add_company_alias",
+    "add_alias",
+    "content_hash",
+    "normalize_url",
+    "parse_feed",
+    "ingest_news_source",
+    "activate_news_source",
+    "register_news_source",
+    "register_news_sources",
+    "get_all_sources",
+    "get_enabled_sources",
+    "get_source",
+    "get_source_configs_for_registration",
+    "get_active_company_aliases",
+    "get_active_aliases",
+    "deactivate_company_alias",
+    "deactivate_alias",
+    "detect_cross_source_duplicate",
+    "find_cross_source_duplicates",
+    "link_article_companies",
+    "match_article_companies",
+    "match_company",
+    "normalize_company_name",
+    "SYMBOL_CONFIDENCE",
+    "to_news_source_create",
+    "url_hash",
+    "validate_article_for_persistence",
+]

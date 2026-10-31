@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Base
-from app.db.session import get_db
+from app.db.session import enable_sqlite_foreign_keys, get_db
 from app.main import app
 
 
@@ -18,6 +18,7 @@ def db_session() -> Generator[Session, None, None]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    enable_sqlite_foreign_keys(engine)
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     with session_factory() as session:

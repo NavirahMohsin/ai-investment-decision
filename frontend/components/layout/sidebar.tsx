@@ -7,7 +7,9 @@ import {
   Bot,
   BrainCircuit,
   ChevronRight,
+  Database,
   FlaskConical,
+  History,
   LayoutDashboard,
   LineChart,
   Settings,
@@ -29,6 +31,8 @@ const navigation: NavigationGroup[] = [
       { label: "Dashboard", href: "/", icon: LayoutDashboard },
       { label: "Stock Explorer", href: "/stocks", icon: TrendingUp },
       { label: "News Intelligence", href: "/news", icon: BrainCircuit },
+      { label: "News Sources", href: "/news/sources", icon: Database },
+      { label: "Ingestion History", href: "/news/ingestion", icon: History },
     ],
   },
   {
@@ -74,7 +78,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{group.label}</p>
             <div className="space-y-1">
               {group.items.map((item) => {
-                const active = pathname === item.href;
+                const active = item.href === "/news" ? pathname.startsWith("/news") : pathname === item.href;
                 const Icon = item.icon;
                 return (
                   <Link

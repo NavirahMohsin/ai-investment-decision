@@ -18,6 +18,98 @@ export interface BackendHealth {
   application: string;
 }
 
+export interface NewsCompanyMatch {
+  company_id: number;
+  symbol: string;
+  name: string;
+  match_method: string;
+  match_confidence: string | number | null;
+  matched_text: string | null;
+}
+
+export interface NewsArticle {
+  id: number;
+  source_id: number;
+  source_provider_key: string;
+  source_name: string;
+  external_id: string | null;
+  canonical_url: string;
+  headline: string;
+  summary: string | null;
+  author: string | null;
+  published_at: string | null;
+  discovered_at: string;
+  language: string | null;
+  companies: NewsCompanyMatch[];
+}
+
+export interface NewsArticleDetail extends NewsArticle {
+  url_hash: string;
+  content_hash: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewsPagination {
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface NewsArticlesResponse {
+  items: NewsArticle[];
+  pagination: NewsPagination;
+}
+
+export interface NewsSource {
+  id: number;
+  name: string;
+  provider_key: string;
+  source_type: string;
+  is_active: boolean;
+  last_success_at: string | null;
+  last_error: string | null;
+}
+
+export interface FetchNewsOptions {
+  page?: number;
+  pageSize?: number;
+  company?: string;
+  source?: string;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+  signal?: AbortSignal;
+}
+
+export interface NewsIngestionRun {
+  id: number;
+  source_id: number | null;
+  source_provider_key: string | null;
+  source_name: string | null;
+  started_at: string;
+  completed_at: string | null;
+  status: string;
+  articles_discovered: number;
+  articles_inserted: number;
+  articles_skipped: number;
+  error_message: string | null;
+}
+
+export interface NewsIngestionRunsResponse {
+  items: NewsIngestionRun[];
+  pagination: NewsPagination;
+}
+
+export interface FetchNewsRunsOptions {
+  page?: number;
+  pageSize?: number;
+  source?: string;
+  status?: string;
+  signal?: AbortSignal;
+}
+
 export interface HistoricalPriceRecord {
   trading_date: string;
   open: string | number;
@@ -204,7 +296,6 @@ function isCompany(value: unknown): value is Company {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-
   const company = value as Record<string, unknown>;
   return (
     typeof company.id === "number" &&
@@ -217,6 +308,100 @@ function isCompany(value: unknown): value is Company {
     typeof company.is_active === "boolean"
   );
 }
+
+function isNewsCompanyMatch(value: unknown): value is NewsCompanyMatch {
+    if (!isRecord(value)) return false;
+    return (
+      isFiniteInteger(value.company_id) &&
+      typeof value.symbol === "string" &&
+      typeof value.name === "string" &&
+      typeof value.match_method === "string" &&
+      (value.match_confidence === null ||
+        typeof value.match_confidence === "string" ||
+        (typeof value.match_confidence === "number" && Number.isFinite(value.match_confidence))) &&
+      (value.matched_text === null || typeof value.matched_text === "string")
+    );
+  }
+
+function isNewsArticle(value: unknown): value is NewsArticle {
+    if (!isRecord(value)) return false;
+    return (
+      isFiniteInteger(value.id) &&
+      isFiniteInteger(value.source_id) &&
+      typeof value.source_provider_key === "string" &&
+      typeof value.source_name === "string" &&
+      (value.external_id === null || typeof value.external_id === "string") &&
+      typeof value.canonical_url === "string" &&
+      typeof value.headline === "string" &&
+      (value.summary === null || typeof value.summary === "string") &&
+      (value.author === null || typeof value.author === "string") &&
+      (value.published_at === null || typeof value.published_at === "string") &&
+      typeof value.discovered_at === "string" &&
+      (value.language === null || typeof value.language === "string") &&
+      Array.isArray(value.companies) &&
+      value.companies.every(isNewsCompanyMatch)
+    );
+  }
+
+  function isNewsArticleDetail(value: unknown): value is NewsArticleDetail {
+    return (
+      isRecord(value) &&
+      isNewsArticle(value) &&
+      typeof value.url_hash === "string" &&
+      (value.content_hash === null || typeof value.content_hash === "string") &&
+      typeof value.created_at === "string" &&
+      typeof value.updated_at === "string"
+    );
+  }
+
+function isNewsPagination(value: unknown): value is NewsPagination {
+    return (
+      isRecord(value) &&
+      isFiniteInteger(value.total) &&
+      isFiniteInteger(value.page) &&
+      isFiniteInteger(value.page_size) &&
+      isFiniteInteger(value.total_pages)
+    );
+  }
+
+function isNewsArticlesResponse(value: unknown): value is NewsArticlesResponse {
+    return (
+      isRecord(value) &&
+      Array.isArray(value.items) &&
+      value.items.every(isNewsArticle) &&
+      isNewsPagination(value.pagination)
+    );
+  }
+
+function isNewsSource(value: unknown): value is NewsSource {
+    return (
+      isRecord(value) &&
+      isFiniteInteger(value.id) &&
+      typeof value.name === "string" &&
+      typeof value.provider_key === "string" &&
+      typeof value.source_type === "string" &&
+      typeof value.is_active === "boolean" &&
+      (value.last_success_at === null || typeof value.last_success_at === "string") &&
+      (value.last_error === null || typeof value.last_error === "string")
+    );
+  }
+
+  function isNewsIngestionRun(value: unknown): value is NewsIngestionRun {
+    if (!isRecord(value)) return false;
+    return (
+      isFiniteInteger(value.id) &&
+      (value.source_id === null || isFiniteInteger(value.source_id)) &&
+      (value.source_provider_key === null || typeof value.source_provider_key === "string") &&
+      (value.source_name === null || typeof value.source_name === "string") &&
+      typeof value.started_at === "string" &&
+      (value.completed_at === null || typeof value.completed_at === "string") &&
+      typeof value.status === "string" &&
+      isFiniteInteger(value.articles_discovered) &&
+      isFiniteInteger(value.articles_inserted) &&
+      isFiniteInteger(value.articles_skipped) &&
+      (value.error_message === null || typeof value.error_message === "string")
+    );
+  }
 
 export async function fetchCompanies(): Promise<Company[]> {
   const response = await fetch(`${API_URL}/api/v1/companies`, {
@@ -233,6 +418,132 @@ export async function fetchCompanies(): Promise<Company[]> {
   }
 
   return payload;
+}
+
+export async function fetchNews(options: FetchNewsOptions = {}): Promise<NewsArticlesResponse> {
+  const params = new URLSearchParams({
+    page: String(options.page ?? 1),
+    page_size: String(options.pageSize ?? 20),
+  });
+  const values: Record<string, string | undefined> = {
+    company: options.company,
+    source: options.source,
+    start_date: options.startDate,
+    end_date: options.endDate,
+    search: options.search,
+  };
+  Object.entries(values).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const response = await fetch(`${API_URL}/api/v1/news?${params.toString()}`, {
+    cache: "no-store",
+    signal: options.signal,
+  });
+  if (!response.ok) {
+    throw new Error(response.status === 404 ? "News endpoint was not found." : `News request failed (${response.status})`);
+  }
+  const payload: unknown = await response.json();
+  if (!isNewsArticlesResponse(payload)) {
+    throw new Error("News response has an unexpected structure");
+  }
+  return payload;
+}
+
+export async function fetchNewsSources(signal?: AbortSignal): Promise<NewsSource[]> {
+  const response = await fetch(`${API_URL}/api/v1/news/sources`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`News sources request failed (${response.status})`);
+  }
+  const payload: unknown = await response.json();
+  if (!Array.isArray(payload) || !payload.every(isNewsSource)) {
+    throw new Error("News sources response has an unexpected structure");
+  }
+  return payload;
+}
+
+async function fetchNewsPage(
+  path: string,
+  options: FetchNewsOptions,
+): Promise<NewsArticlesResponse> {
+  const params = new URLSearchParams({
+    page: String(options.page ?? 1),
+    page_size: String(options.pageSize ?? 20),
+  });
+  const values: Record<string, string | undefined> = {
+    company: options.company,
+    source: options.source,
+    start_date: options.startDate,
+    end_date: options.endDate,
+    search: options.search,
+  };
+  Object.entries(values).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const response = await fetch(`${API_URL}${path}?${params.toString()}`, {
+    cache: "no-store",
+    signal: options.signal,
+  });
+  if (!response.ok) throw new Error(`News request failed (${response.status})`);
+  const payload: unknown = await response.json();
+  if (!isNewsArticlesResponse(payload)) {
+    throw new Error("News response has an unexpected structure");
+  }
+  return payload;
+}
+
+export async function fetchNewsArticle(
+  articleId: number,
+  signal?: AbortSignal,
+): Promise<NewsArticleDetail> {
+  const response = await fetch(`${API_URL}/api/v1/news/${encodeURIComponent(articleId)}`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) {
+    if (response.status === 404) throw new Error("This news article was not found.");
+    throw new Error(`News article request failed (${response.status})`);
+  }
+  const payload: unknown = await response.json();
+  if (!isNewsArticleDetail(payload)) {
+    throw new Error("News article response has an unexpected structure");
+  }
+  return payload;
+}
+
+export async function fetchCompanyNews(
+  symbol: string,
+  options: Omit<FetchNewsOptions, "company"> = {},
+): Promise<NewsArticlesResponse> {
+  return fetchNewsPage(`/api/v1/companies/${encodeURIComponent(symbol)}/news`, options);
+}
+
+export async function fetchNewsIngestionRuns(
+  options: FetchNewsRunsOptions = {},
+): Promise<NewsIngestionRunsResponse> {
+  const params = new URLSearchParams({
+    page: String(options.page ?? 1),
+    page_size: String(options.pageSize ?? 20),
+  });
+  if (options.source) params.set("source", options.source);
+  if (options.status) params.set("status", options.status);
+  const response = await fetch(`${API_URL}/api/v1/news/ingestion/runs?${params.toString()}`, {
+    cache: "no-store",
+    signal: options.signal,
+  });
+  if (!response.ok) throw new Error(`Ingestion history request failed (${response.status})`);
+  const payload: unknown = await response.json();
+  if (
+    !isRecord(payload) ||
+    !Array.isArray(payload.items) ||
+    !payload.items.every(isNewsIngestionRun) ||
+    !isNewsPagination(payload.pagination)
+  ) {
+    throw new Error("Ingestion history response has an unexpected structure");
+  }
+  return payload as unknown as NewsIngestionRunsResponse;
 }
 
 function isHistoricalPriceRecord(value: unknown): value is HistoricalPriceRecord {

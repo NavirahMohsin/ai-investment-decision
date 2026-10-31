@@ -1,13 +1,23 @@
-from datetime import date
+from datetime import date, datetime, time, timedelta, timezone
 from math import isfinite
+import re
+from threading import Lock
 from typing import Literal
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Company, DailyMarketData, IngestionRun
+from app.db.models import (
+    Company,
+    DailyMarketData,
+    IngestionRun,
+    NewsArticle,
+    NewsArticleCompany,
+    NewsIngestionRun,
+    NewsSource,
+)
 from app.db.session import get_db
 from app.schemas.market import (
     CompanyResponse,
@@ -18,13 +28,413 @@ from app.schemas.market import (
     MarketSnapshot,
     TechnicalIndicatorsResponse,
 )
+from app.schemas.news import (
+    NewsArticleDetailRead,
+    NewsArticleListItem,
+    NewsCompanyMatchRead,
+    NewsIngestionRunReadSafe,
+    NewsSourceReadSafe,
+    PaginatedNewsArticles,
+    PaginatedNewsIngestionRuns,
+    PaginationMetadata,
+    NewsIngestionTriggerResponse,
+)
 from app.services.indicators import (
     AdjustedCloseUnavailable,
     IndicatorParameters,
     calculate_indicators,
 )
+from app.services.news.http_client import SafeFeedHttpClient
+from app.services.news.ingestion import ingest_news_source
+from app.services.news.source_registry import (
+    ContentPolicyStatus,
+    get_source,
+)
 
 router = APIRouter(prefix="/api/v1")
+_news_ingestion_locks: dict[str, Lock] = {}
+_news_ingestion_locks_guard = Lock()
+
+
+def _source_ingestion_lock(source_key: str) -> Lock:
+    with _news_ingestion_locks_guard:
+        return _news_ingestion_locks.setdefault(source_key, Lock())
+
+
+def _pagination(page: int, page_size: int, total: int) -> PaginationMetadata:
+    return PaginationMetadata(
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=(total + page_size - 1) // page_size if total else 0,
+    )
+
+
+def _validate_news_dates(start_date: date | None, end_date: date | None) -> None:
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
+
+
+def _apply_publication_dates(query, start_date: date | None, end_date: date | None):
+    if start_date:
+        query = query.where(
+            NewsArticle.published_at
+            >= datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+        )
+    if end_date:
+        query = query.where(
+            NewsArticle.published_at
+            < datetime.combine(
+                end_date + timedelta(days=1), time.min, tzinfo=timezone.utc
+            )
+        )
+    return query
+
+
+def _article_ordering(query):
+    return query.order_by(
+        NewsArticle.published_at.is_(None),
+        desc(NewsArticle.published_at),
+        desc(NewsArticle.id),
+    )
+
+
+def _safe_news_error(value: str | None) -> str | None:
+    if not value:
+        return None
+    if "\n" in value or "\r" in value or "Traceback" in value:
+        return "Ingestion failed"
+    return re.sub(r"https?://\S+", "[redacted-url]", value)[:500]
+
+
+def _company_matches(db: Session, article_ids: list[int]) -> dict[int, list[NewsCompanyMatchRead]]:
+    if not article_ids:
+        return {}
+    rows = db.execute(
+        select(
+            NewsArticleCompany.article_id,
+            Company.id,
+            Company.symbol,
+            Company.name,
+            NewsArticleCompany.match_method,
+            NewsArticleCompany.match_confidence,
+            NewsArticleCompany.matched_text,
+        )
+        .join(Company, Company.id == NewsArticleCompany.company_id)
+        .where(NewsArticleCompany.article_id.in_(article_ids))
+        .order_by(NewsArticleCompany.article_id, Company.id)
+    ).all()
+    matches: dict[int, list[NewsCompanyMatchRead]] = {}
+    for row in rows:
+        matches.setdefault(row.article_id, []).append(
+            NewsCompanyMatchRead(
+                company_id=row.id,
+                symbol=row.symbol,
+                name=row.name,
+                match_method=row.match_method,
+                match_confidence=row.match_confidence,
+                matched_text=row.matched_text,
+            )
+        )
+    return matches
+
+
+def _article_items(
+    db: Session,
+    rows: list[tuple[NewsArticle, NewsSource]],
+) -> list[NewsArticleListItem]:
+    matches = _company_matches(db, [article.id for article, _ in rows])
+    return [
+        NewsArticleListItem(
+            id=article.id,
+            source_id=article.source_id,
+            source_provider_key=source.provider_key,
+            source_name=source.name,
+            external_id=article.external_id,
+            canonical_url=article.canonical_url,
+            headline=article.headline,
+            summary=article.summary,
+            author=article.author,
+            published_at=article.published_at,
+            discovered_at=article.discovered_at,
+            language=article.language,
+            companies=matches.get(article.id, []),
+        )
+        for article, source in rows
+    ]
+
+
+@router.get("/news", response_model=PaginatedNewsArticles)
+def news_articles(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    company: str | None = None,
+    source: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+):
+    _validate_news_dates(start_date, end_date)
+    filters = []
+    if company:
+        filters.append(Company.symbol == company.upper())
+    if source:
+        filters.append(NewsSource.provider_key == source)
+    if search and search.strip():
+        filters.append(NewsArticle.headline.ilike(f"%{search.strip()}%"))
+    query = (
+        select(NewsArticle, NewsSource)
+        .join(NewsSource, NewsSource.id == NewsArticle.source_id)
+        .where(*filters)
+    )
+    query = _apply_publication_dates(query, start_date, end_date)
+    if company:
+        query = query.join(
+            NewsArticleCompany,
+            NewsArticleCompany.article_id == NewsArticle.id,
+        ).join(Company, Company.id == NewsArticleCompany.company_id)
+    total_query = select(func.count(func.distinct(NewsArticle.id))).select_from(
+        NewsArticle
+    ).join(NewsSource, NewsSource.id == NewsArticle.source_id)
+    if company:
+        total_query = total_query.join(
+            NewsArticleCompany,
+            NewsArticleCompany.article_id == NewsArticle.id,
+        ).join(Company, Company.id == NewsArticleCompany.company_id)
+    total_query = total_query.where(*filters)
+    total_query = _apply_publication_dates(total_query, start_date, end_date)
+    total = db.scalar(total_query) or 0
+    query = _article_ordering(query).offset((page - 1) * page_size).limit(page_size)
+    rows = db.execute(query).unique().all()
+    items = _article_items(db, [(row[0], row[1]) for row in rows])
+    return PaginatedNewsArticles(
+        items=items,
+        pagination=_pagination(page, page_size, total),
+    )
+
+
+@router.get("/news/sources", response_model=list[NewsSourceReadSafe])
+def news_sources(db: Session = Depends(get_db)):
+    sources = db.scalars(
+        select(NewsSource).order_by(NewsSource.name, NewsSource.id)
+    ).all()
+    return [
+        NewsSourceReadSafe(
+            id=source.id,
+            name=source.name,
+            provider_key=source.provider_key,
+            source_type=source.source_type,
+            is_active=source.is_active,
+            last_success_at=source.last_success_at,
+            last_error=_safe_news_error(source.last_error),
+        )
+        for source in sources
+    ]
+
+
+@router.get("/news/ingestion/runs", response_model=PaginatedNewsIngestionRuns)
+def news_ingestion_runs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    source: str | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = select(NewsIngestionRun, NewsSource).outerjoin(
+        NewsSource, NewsSource.id == NewsIngestionRun.source_id
+    )
+    if source:
+        query = query.where(NewsSource.provider_key == source)
+    if status:
+        allowed_statuses = {"running", "success", "partial_success", "failed"}
+        if status not in allowed_statuses:
+            raise HTTPException(status_code=400, detail="Invalid ingestion status")
+        query = query.where(NewsIngestionRun.status == status)
+    total_query = select(func.count(NewsIngestionRun.id)).select_from(
+        NewsIngestionRun
+    ).outerjoin(NewsSource, NewsSource.id == NewsIngestionRun.source_id)
+    if source:
+        total_query = total_query.where(NewsSource.provider_key == source)
+    if status:
+        total_query = total_query.where(NewsIngestionRun.status == status)
+    total = db.scalar(total_query) or 0
+    rows = db.execute(
+        query.order_by(
+            desc(NewsIngestionRun.started_at),
+            desc(NewsIngestionRun.id),
+        ).offset((page - 1) * page_size).limit(page_size)
+    ).all()
+    return PaginatedNewsIngestionRuns(
+        items=[
+            NewsIngestionRunReadSafe(
+                id=run.id,
+                source_id=run.source_id,
+                source_provider_key=source.provider_key if source else None,
+                source_name=source.name if source else None,
+                started_at=run.started_at,
+                completed_at=run.completed_at,
+                status=run.status,
+                articles_discovered=run.articles_discovered,
+                articles_inserted=run.articles_inserted,
+                articles_skipped=run.articles_skipped,
+                error_message=_safe_news_error(run.error_message),
+            )
+            for run, source in rows
+        ],
+        pagination=_pagination(page, page_size, total),
+    )
+
+
+@router.post(
+    "/news/ingestion/{source_key}",
+    response_model=NewsIngestionTriggerResponse,
+)
+def trigger_news_ingestion(
+    source_key: str,
+    db: Session = Depends(get_db),
+):
+    source_config = get_source(source_key)
+    if source_config is None:
+        raise HTTPException(status_code=404, detail="Unknown news source")
+    if not source_config.is_enabled:
+        raise HTTPException(status_code=409, detail="News source is disabled")
+    if source_config.content_policy_status not in {
+        ContentPolicyStatus.APPROVED_CONTENT_STORAGE,
+        ContentPolicyStatus.APPROVED_METADATA_ONLY,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="News source content policy does not approve article storage",
+        )
+    source = db.scalar(
+        select(NewsSource).where(NewsSource.provider_key == source_key)
+    )
+    if source is None:
+        raise HTTPException(
+            status_code=409,
+            detail="News source is not registered in the database",
+        )
+    if not source.is_active:
+        raise HTTPException(status_code=409, detail="News source is inactive")
+
+    lock = _source_ingestion_lock(source_key)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="News ingestion is already running")
+    try:
+        if source_config.content_policy_status == ContentPolicyStatus.APPROVED_METADATA_ONLY:
+            result = ingest_news_source(
+                db,
+                source_config,
+                SafeFeedHttpClient(),
+                allow_metadata_only=True,
+            )
+        else:
+            result = ingest_news_source(
+                db,
+                source_config,
+                SafeFeedHttpClient(),
+            )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail="News ingestion failed",
+        ) from error
+    finally:
+        lock.release()
+
+    run = db.get(NewsIngestionRun, result.run_id)
+    if run is None:
+        raise HTTPException(status_code=500, detail="News ingestion result unavailable")
+    if result.status == "failed":
+        message = "News ingestion completed with failures"
+    elif result.status == "partial_success":
+        message = "News ingestion completed with skipped articles"
+    else:
+        message = "News ingestion completed successfully"
+    return NewsIngestionTriggerResponse(
+        run_id=result.run_id,
+        source_key=result.provider_key,
+        source_name=source_config.name,
+        status=result.status,
+        discovered_count=result.articles_discovered,
+        inserted_count=result.articles_inserted,
+        skipped_count=result.articles_skipped,
+        failed_count=0,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        message=message,
+    )
+
+
+@router.get("/news/{article_id}", response_model=NewsArticleDetailRead)
+def news_article_detail(article_id: int, db: Session = Depends(get_db)):
+    row = db.execute(
+        select(NewsArticle, NewsSource)
+        .join(NewsSource, NewsSource.id == NewsArticle.source_id)
+        .where(NewsArticle.id == article_id)
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="News article not found")
+    article, source = row
+    item = _article_items(db, [(article, source)])[0]
+    return NewsArticleDetailRead(
+        **item.model_dump(),
+        url_hash=article.url_hash,
+        content_hash=article.content_hash,
+        created_at=article.created_at,
+        updated_at=article.updated_at,
+    )
+
+
+@router.get("/companies/{symbol}/news", response_model=PaginatedNewsArticles)
+def company_news(
+    symbol: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    db: Session = Depends(get_db),
+):
+    _validate_news_dates(start_date, end_date)
+    company = db.scalar(
+        select(Company).where(
+            Company.symbol == symbol.upper(),
+            Company.is_active.is_(True),
+        )
+    )
+    if company is None:
+        raise HTTPException(status_code=404, detail="Unknown or inactive company")
+    base = (
+        select(NewsArticle, NewsSource)
+        .join(
+            NewsArticleCompany,
+            NewsArticleCompany.article_id == NewsArticle.id,
+        )
+        .join(NewsSource, NewsSource.id == NewsArticle.source_id)
+        .where(NewsArticleCompany.company_id == company.id)
+    )
+    base = _apply_publication_dates(base, start_date, end_date)
+    total_query = (
+        select(func.count(func.distinct(NewsArticle.id)))
+        .select_from(NewsArticle)
+        .join(
+            NewsArticleCompany,
+            NewsArticleCompany.article_id == NewsArticle.id,
+        )
+        .where(NewsArticleCompany.company_id == company.id)
+    )
+    total_query = _apply_publication_dates(total_query, start_date, end_date)
+    total = db.scalar(total_query) or 0
+    rows = db.execute(
+        _article_ordering(base)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).unique().all()
+    return PaginatedNewsArticles(
+        items=_article_items(db, [(row[0], row[1]) for row in rows]),
+        pagination=_pagination(page, page_size, total),
+    )
 
 
 @router.get("/companies", response_model=list[CompanyResponse])
