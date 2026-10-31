@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
+  ArrowUpRight,
   Building2,
   CircleAlert,
   Database,
@@ -21,8 +23,9 @@ function formatInstrumentType(value: string) {
 
 function StockCard({ company }: { company: Company }) {
   return (
-    <Card className="border-border/70 bg-card/80 shadow-none transition-colors hover:border-primary/40 hover:bg-card">
-      <CardContent className="p-5">
+    <Link href={`/stocks/${encodeURIComponent(company.symbol)}`} className="group block">
+      <Card className="h-full border-border/70 bg-card/80 shadow-none transition-colors group-hover:border-primary/40 group-hover:bg-card">
+        <CardContent className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
@@ -49,8 +52,12 @@ function StockCard({ company }: { company: Company }) {
             </div>
           )}
         </div>
-      </CardContent>
-    </Card>
+        <div className="mt-4 flex items-center gap-1 text-xs text-cyan-300 opacity-0 transition-opacity group-hover:opacity-100">
+          View historical data <ArrowUpRight className="size-3.5" />
+        </div>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 
