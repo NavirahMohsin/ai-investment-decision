@@ -56,6 +56,54 @@ class HistoricalPriceResponse(BaseModel):
     records: list[HistoricalPriceRecord]
 
 
+class IndicatorParametersResponse(BaseModel):
+    price_field: str
+    sma_period: int
+    ema_period: int
+    rsi_period: int
+    macd_fast_period: int
+    macd_slow_period: int
+    macd_signal_period: int
+    bollinger_period: int
+    bollinger_std_dev: float
+    atr_period: int
+
+
+class TechnicalIndicatorRecord(BaseModel):
+    trading_date: date
+    selected_price: float | None
+    close: float | None
+    sma: float | None
+    ema: float | None
+    rsi: float | None
+    macd: float | None
+    macd_signal: float | None
+    macd_histogram: float | None
+    bollinger_middle: float | None
+    bollinger_upper: float | None
+    bollinger_lower: float | None
+    atr: float | None
+
+
+class TechnicalIndicatorsResponse(BaseModel):
+    symbol: str
+    provider_symbol: str
+    exchange: str
+    instrument_type: str
+    source: str | None
+    provider: str | None
+    price_field: str
+    requested_start_date: date | None
+    requested_end_date: date | None
+    actual_first_date: date | None
+    actual_last_date: date | None
+    available_records: int
+    returned_records: int
+    parameters: IndicatorParametersResponse
+    calculation_metadata: dict[str, str]
+    records: list[TechnicalIndicatorRecord]
+
+
 class IngestionRunResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

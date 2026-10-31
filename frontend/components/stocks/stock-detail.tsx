@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CalendarDays, CircleAlert, Database, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { fetchCompanies, fetchStockHistory, type Company, type HistoricalPriceRecord, type HistoricalPriceResponse } from "@/lib/api";
+import { fetchCompanies, fetchStockHistory, fetchStockIndicators, type Company, type FetchStockIndicatorsOptions, type HistoricalPriceRecord, type HistoricalPriceResponse, type TechnicalIndicatorsResponse } from "@/lib/api";
 import { ClosingPriceChart, VolumeChart } from "@/components/stocks/historical-chart";
+import { IndicatorCharts } from "@/components/stocks/indicator-chart/indicator-charts";
+import { IndicatorControls, type IndicatorVisibility } from "@/components/stocks/indicator-chart/indicator-controls";
 
 const ranges = [
   { label: "1M", days: 31 },
@@ -49,24 +51,64 @@ function SummaryValue({ label, value }: { label: string; value: string }) {
 export function StockDetail({ symbol }: { symbol: string }) {
   const [company, setCompany] = useState<Company | null>(null);
   const [history, setHistory] = useState<HistoricalPriceResponse | null>(null);
+  const [indicators, setIndicators] = useState<TechnicalIndicatorsResponse | null>(null);
+  const [indicatorOptions, setIndicatorOptions] = useState<FetchStockIndicatorsOptions>({});
+  const [indicatorVisibility, setIndicatorVisibility] = useState<IndicatorVisibility>({
+    sma: true,
+    ema: true,
+    bollinger: true,
+    rsi: true,
+    macd: true,
+    atr: true,
+  });
+  const [selectedIndicatorIndex, setSelectedIndicatorIndex] = useState<number | null>(null);
   const [selectedRange, setSelectedRange] = useState("1Y");
   const [loading, setLoading] = useState(true);
+  const [indicatorLoading, setIndicatorLoading] = useState(true);
   const [companyLoading, setCompanyLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [indicatorError, setIndicatorError] = useState<string | null>(null);
+  const historyRequestRef = useRef(0);
+  const indicatorRequestRef = useRef(0);
 
   const loadHistory = useCallback(async (rangeLabel: string) => {
     const range = ranges.find((item) => item.label === rangeLabel) ?? ranges[3];
+    const requestId = historyRequestRef.current + 1;
+    historyRequestRef.current = requestId;
     setLoading(true);
     setError(null);
     try {
-      setHistory(await fetchStockHistory(symbol, startDateForRange(range.days), new Date().toISOString().slice(0, 10)));
+      const result = await fetchStockHistory(symbol, startDateForRange(range.days), new Date().toISOString().slice(0, 10));
+      if (requestId !== historyRequestRef.current) return;
+      setHistory(result);
     } catch (requestError) {
+      if (requestId !== historyRequestRef.current) return;
       setError(requestError instanceof Error ? requestError.message : "Unable to load historical data.");
       setHistory(null);
     } finally {
-      setLoading(false);
+      if (requestId === historyRequestRef.current) setLoading(false);
     }
   }, [symbol]);
+
+  const loadIndicators = useCallback(async (rangeLabel: string, options: FetchStockIndicatorsOptions = indicatorOptions) => {
+    const range = ranges.find((item) => item.label === rangeLabel) ?? ranges[3];
+    const requestId = indicatorRequestRef.current + 1;
+    indicatorRequestRef.current = requestId;
+    setIndicatorLoading(true);
+    setIndicatorError(null);
+    try {
+      const result = await fetchStockIndicators(symbol, startDateForRange(range.days), new Date().toISOString().slice(0, 10), options);
+      if (requestId !== indicatorRequestRef.current) return;
+      setIndicators(result);
+      setSelectedIndicatorIndex(null);
+    } catch (requestError) {
+      if (requestId !== indicatorRequestRef.current) return;
+      setIndicatorError(requestError instanceof Error ? requestError.message : "Unable to load technical indicators.");
+      setIndicators(null);
+    } finally {
+      if (requestId === indicatorRequestRef.current) setIndicatorLoading(false);
+    }
+  }, [indicatorOptions, symbol]);
 
   useEffect(() => {
     let active = true;
@@ -89,20 +131,47 @@ export function StockDetail({ symbol }: { symbol: string }) {
 
   useEffect(() => {
     let active = true;
+    const requestId = indicatorRequestRef.current + 1;
+    indicatorRequestRef.current = requestId;
+    void fetchStockIndicators(symbol, startDateForRange(ranges[3].days), new Date().toISOString().slice(0, 10), {})
+      .then((result) => {
+        if (active && requestId === indicatorRequestRef.current) {
+          setIndicators(result);
+          setSelectedIndicatorIndex(null);
+        }
+      })
+      .catch((requestError: unknown) => {
+        if (active && requestId === indicatorRequestRef.current) {
+          setIndicatorError(requestError instanceof Error ? requestError.message : "Unable to load technical indicators.");
+          setIndicators(null);
+        }
+      })
+      .finally(() => {
+        if (active && requestId === indicatorRequestRef.current) setIndicatorLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [symbol]);
+
+  useEffect(() => {
+    let active = true;
+    const requestId = historyRequestRef.current + 1;
+    historyRequestRef.current = requestId;
     const range = ranges[3];
     void fetchStockHistory(symbol, startDateForRange(range.days), new Date().toISOString().slice(0, 10))
       .then((result) => {
-        if (active) {
+        if (active && requestId === historyRequestRef.current) {
           setHistory(result);
         }
       })
       .catch((requestError: unknown) => {
-        if (active) {
+        if (active && requestId === historyRequestRef.current) {
           setError(requestError instanceof Error ? requestError.message : "Unable to load historical data.");
         }
       })
       .finally(() => {
-        if (active) {
+        if (active && requestId === historyRequestRef.current) {
           setLoading(false);
         }
       });
@@ -116,6 +185,12 @@ export function StockDetail({ symbol }: { symbol: string }) {
     () => history?.records.length ? history.records[history.records.length - 1] : null,
     [history],
   );
+
+  function changeRange(rangeLabel: string) {
+    setSelectedRange(rangeLabel);
+    void loadHistory(rangeLabel);
+    void loadIndicators(rangeLabel);
+  }
 
   return (
     <div className="space-y-7">
@@ -169,7 +244,7 @@ export function StockDetail({ symbol }: { symbol: string }) {
               </div>
               <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-background/40 p-1" aria-label="Historical data range">
                 {ranges.map((range) => (
-                  <Button key={range.label} type="button" variant={selectedRange === range.label ? "secondary" : "ghost"} size="sm" onClick={() => { setSelectedRange(range.label); void loadHistory(range.label); }}>
+                  <Button key={range.label} type="button" variant={selectedRange === range.label ? "secondary" : "ghost"} size="sm" onClick={() => changeRange(range.label)}>
                     {range.label}
                   </Button>
                 ))}
@@ -184,6 +259,36 @@ export function StockDetail({ symbol }: { symbol: string }) {
             <>
               <ClosingPriceChart records={history.records} />
               <VolumeChart records={history.records} />
+              <section className="space-y-5" aria-label="Technical analysis">
+                <IndicatorControls
+                  visibility={indicatorVisibility}
+                  onVisibilityChange={setIndicatorVisibility}
+                  options={indicatorOptions}
+                  onApply={(options) => {
+                    setIndicatorOptions(options);
+                    void loadIndicators(selectedRange, options);
+                  }}
+                  disabled={indicatorLoading}
+                />
+                {indicatorLoading && <div className="h-72 animate-pulse rounded-xl border border-border/70 bg-card/60" />}
+                {!indicatorLoading && indicatorError && (
+                  <Card className="border-rose-300/20 bg-rose-300/5 shadow-none">
+                    <CardContent className="flex flex-col items-center justify-center px-6 py-10 text-center">
+                      <CircleAlert className="size-7 text-rose-300" />
+                      <h3 className="mt-4 font-medium text-foreground">Unable to load technical indicators</h3>
+                      <p className="mt-2 max-w-md text-sm text-muted-foreground">{indicatorError}</p>
+                      <Button type="button" variant="outline" onClick={() => void loadIndicators(selectedRange)} className="mt-5">
+                        <RefreshCw className="size-4" /> Try again
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+                {!indicatorLoading && !indicatorError && indicators && (
+                  indicators.records.length === 0
+                    ? <Card className="border-border/70 bg-card/80 shadow-none"><CardContent className="p-6 text-center text-sm text-muted-foreground">No technical-indicator data is available for this range.</CardContent></Card>
+                    : <IndicatorCharts history={history} records={indicators.records} visibility={indicatorVisibility} selectedIndex={selectedIndicatorIndex} onSelectionChange={setSelectedIndicatorIndex} />
+                )}
+              </section>
               <Card className="border-border/70 bg-card/80 shadow-none">
                 <CardContent className="grid gap-5 p-5 sm:grid-cols-4 sm:px-6">
                   <SummaryValue label="Open" value={formatPrice(latest?.open)} />
