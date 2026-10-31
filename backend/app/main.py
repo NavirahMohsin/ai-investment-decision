@@ -2,6 +2,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import v1_router
+
 app = FastAPI(
     title="ArthAI API",
     description="Backend API for the ArthAI Financial Intelligence Platform",
@@ -16,6 +18,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(v1_router)
 
 
 @app.get("/")
