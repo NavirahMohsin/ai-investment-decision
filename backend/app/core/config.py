@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     ENABLE_MARKET_SCHEDULER: bool = True
     SCHEDULER_INTERVAL_MINUTES: int = 15
 
+    # Fundamentals refresh (reporting cadence — not intraday)
+    ENABLE_FUNDAMENTALS_SCHEDULER: bool = True
+    FUNDAMENTALS_REFRESH_INTERVAL_HOURS: int = 24
+    FUNDAMENTALS_FRESH_DAYS: int = 30
+    FUNDAMENTALS_AGING_DAYS: int = 90
+    FUNDAMENTALS_MAX_COMPANIES_PER_RUN: int = 25
+
 
 settings = Settings()
 

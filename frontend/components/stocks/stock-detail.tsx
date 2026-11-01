@@ -10,6 +10,8 @@ import { fetchCompanies, fetchMarketQuote, fetchStockHistory, fetchStockIndicato
 import { ClosingPriceChart, VolumeChart } from "@/components/stocks/historical-chart";
 import { IndicatorCharts } from "@/components/stocks/indicator-chart/indicator-charts";
 import { IndicatorControls, type IndicatorVisibility } from "@/components/stocks/indicator-chart/indicator-controls";
+import { FundamentalsPanel } from "@/components/stocks/fundamentals-panel";
+import { CompanyProfileCard } from "@/components/stocks/company-profile-card";
 
 const ranges = [
   { label: "1M", days: 31 },
@@ -266,6 +268,13 @@ export function StockDetail({ symbol }: { symbol: string }) {
               </div>
             </CardContent>
           </Card>
+          <CompanyProfileCard symbol={symbol} />
+          <FundamentalsPanel symbol={symbol} />
+          <div className="flex justify-end">
+            <Link href={`/stocks/compare?symbols=${encodeURIComponent(symbol)}`} className="text-sm text-cyan-300 hover:underline">
+              Compare this company with peers
+            </Link>
+          </div>
           <Card className="border-border/70 bg-card/80 shadow-none">
             <CardContent className="grid gap-4 p-5 sm:grid-cols-4 sm:px-6">
               <SummaryValue label="Yahoo quote" value={formatPrice(quote?.price)} />

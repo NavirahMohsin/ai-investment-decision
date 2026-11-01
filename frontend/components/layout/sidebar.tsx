@@ -14,6 +14,7 @@ import {
   LineChart,
   Settings,
   Sparkles,
+  Layers3,
   TrendingUp,
   X,
   type LucideIcon,
@@ -30,6 +31,7 @@ const navigation: NavigationGroup[] = [
     items: [
       { label: "Dashboard", href: "/", icon: LayoutDashboard },
       { label: "Stock Explorer", href: "/stocks", icon: TrendingUp },
+      { label: "Sector Intelligence", href: "/sectors", icon: Layers3 },
       { label: "News Intelligence", href: "/news", icon: BrainCircuit },
       { label: "News Sources", href: "/news/sources", icon: Database },
       { label: "Ingestion History", href: "/news/ingestion", icon: History },

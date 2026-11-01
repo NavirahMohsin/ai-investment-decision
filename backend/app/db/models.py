@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
@@ -9,6 +9,23 @@ from sqlalchemy.types import TypeDecorator
 
 class Base(DeclarativeBase):
     pass
+
+
+class Sector(Base):
+    __tablename__ = "sectors"
+    __table_args__ = (
+        UniqueConstraint("sector_name", "industry_name", name="uq_sector_industry"),
+        Index("ix_sectors_sector_name", "sector_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sector_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    industry_name: Mapped[str | None] = mapped_column(String(160))
+    description: Mapped[str | None] = mapped_column(Text)
+    data_source: Mapped[str] = mapped_column(String(50), nullable=False, default="yahoo_finance")
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class Company(Base):
@@ -20,6 +37,7 @@ class Company(Base):
     provider_symbol: Mapped[str] = mapped_column(String(60), nullable=False, unique=True)
     exchange: Mapped[str] = mapped_column(String(20), nullable=False)
     sector: Mapped[str | None] = mapped_column(String(120))
+    sector_id: Mapped[int | None] = mapped_column(ForeignKey("sectors.id", ondelete="SET NULL"), index=True)
     instrument_type: Mapped[str] = mapped_column(String(30), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
@@ -206,6 +224,85 @@ class MarketDataUpdateRun(Base):
     started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     error_message: Mapped[str | None] = mapped_column(String(500))
+
+
+class CompanyFinancial(Base):
+    """Store company financial metrics and ratios."""
+    __tablename__ = "company_financials"
+    __table_args__ = (
+        UniqueConstraint("company_id", "metric_name", "period_end", "period_type", name="uq_company_financial"),
+        Index("ix_company_financials_company_period", "company_id", "period_end"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    metric_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    metric_value: Mapped[Decimal | None] = mapped_column(Numeric(24, 6))
+    period_end: Mapped[date | None] = mapped_column(Date)
+    period_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'annual', 'quarterly', 'ttm'
+    statement_type: Mapped[str | None] = mapped_column(String(20))  # 'income', 'balance', 'cashflow', 'ratio'
+    currency: Mapped[str | None] = mapped_column(String(10))
+    data_source: Mapped[str] = mapped_column(String(50), nullable=False, default="yahoo_finance")
+    retrieved_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class CompanyFundamentalInfo(Base):
+    """Store company information and metadata."""
+    __tablename__ = "company_fundamental_info"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    business_summary: Mapped[str | None] = mapped_column(Text)
+    website: Mapped[str | None] = mapped_column(String(255))
+    country: Mapped[str | None] = mapped_column(String(50))
+    currency: Mapped[str | None] = mapped_column(String(10))
+    market_cap: Mapped[int | None] = mapped_column(BigInteger)
+    enterprise_value: Mapped[int | None] = mapped_column(BigInteger)
+    employees: Mapped[int | None] = mapped_column(Integer)
+    data_source: Mapped[str] = mapped_column(String(50), nullable=False, default="yahoo_finance")
+    retrieved_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class CompanyProfile(Base):
+    """Extended profile metadata sourced from Yahoo Finance."""
+    __tablename__ = "company_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    industry: Mapped[str | None] = mapped_column(String(160))
+    headquarters_city: Mapped[str | None] = mapped_column(String(120))
+    headquarters_state: Mapped[str | None] = mapped_column(String(120))
+    headquarters_country: Mapped[str | None] = mapped_column(String(120))
+    products_services: Mapped[list[str] | None] = mapped_column(JSON)
+    revenue_segments: Mapped[dict[str, float] | None] = mapped_column(JSON)
+    full_time_employees: Mapped[int | None] = mapped_column(Integer)
+    fiscal_year_end: Mapped[str | None] = mapped_column(String(20))
+    data_source: Mapped[str] = mapped_column(String(50), nullable=False, default="yahoo_finance")
+    retrieved_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class FundamentalDataUpdateRun(Base):
+    """Track fundamental data update runs."""
+    __tablename__ = "fundamental_data_update_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'company_info', 'financials', 'ratios', 'all'
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # 'running', 'completed', 'partial', 'failed'
+    companies_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    successful_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_symbols: Mapped[str | None] = mapped_column(String(500))
+    trigger_source: Mapped[str] = mapped_column(String(20), nullable=False)  # 'scheduled' or 'manual'
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    error_message: Mapped[str | None] = mapped_column(String(500))
+
 
 
 class NewsIngestionRun(Base):

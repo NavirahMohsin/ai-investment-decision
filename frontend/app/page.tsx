@@ -3,6 +3,7 @@ import { QuickAccess } from "@/components/dashboard/quick-access";
 import { MarketOverview } from "@/components/dashboard/market-overview";
 import { WatchlistSection } from "@/components/dashboard/watchlist-section";
 import { WelcomeSection } from "@/components/dashboard/welcome-section";
+import { FundamentalsSummary } from "@/components/dashboard/fundamentals-summary";
 
 export default function Home() {
   return (
@@ -10,6 +11,7 @@ export default function Home() {
       <div className="space-y-8">
         <WelcomeSection />
         <MarketOverview />
+        <FundamentalsSummary />
         <WatchlistSection />
         <QuickAccess />
       </div>

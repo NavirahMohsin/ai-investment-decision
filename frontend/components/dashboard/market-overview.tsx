@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, TrendingDown, TrendingUp, Activity } from "lucide-react";
+import { TrendingDown, TrendingUp, Activity } from "lucide-react";
 import { fetchMarketOverview, type MarketOverviewResponse } from "@/lib/api";
 import { MarketStatCard } from "@/components/dashboard/market-stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

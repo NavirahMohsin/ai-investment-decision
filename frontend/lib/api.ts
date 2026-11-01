@@ -9,8 +9,62 @@ export interface Company {
   provider_symbol: string;
   exchange: string;
   sector: string | null;
+  sector_id?: number | null;
   instrument_type: string;
   is_active: boolean;
+}
+
+export interface CompanyProfile {
+  symbol: string;
+  name: string;
+  provider_symbol: string;
+  exchange: string;
+  sector: string | null;
+  industry: string | null;
+  business_summary: string | null;
+  website: string | null;
+  country: string | null;
+  currency: string | null;
+  headquarters_city: string | null;
+  headquarters_state: string | null;
+  headquarters_country: string | null;
+  employees: number | null;
+  fiscal_year_end: string | null;
+  products_services: string[] | null;
+  revenue_segments: Record<string, number> | null;
+  market_cap: number | null;
+  enterprise_value: number | null;
+  data_source: string | null;
+  retrieved_at: string | null;
+  data_freshness: string;
+}
+
+export interface SectorListItem {
+  sector: string;
+  industries: string[];
+  company_count: number;
+  latest_data_at: string | null;
+}
+
+export interface SectorIntelligence {
+  sector: string;
+  tracked_company_count: number;
+  industry_count: number;
+  average_daily_change_pct: string | number | null;
+  average_fundamental_score: string | number | null;
+  companies: {
+    symbol: string;
+    name: string;
+    industry: string | null;
+    market_cap: number | null;
+    latest_close: string | number | null;
+    daily_change_pct: string | number | null;
+    fundamental_score: string | number | null;
+    classification: string | null;
+  }[];
+  data_scope: string;
+  warnings: string[];
+  generated_at: string;
 }
 
 export interface MarketSnapshot {
@@ -237,6 +291,155 @@ export interface FetchStockIndicatorsOptions {
   bollinger_period?: number;
   bollinger_std_dev?: number;
   atr_period?: number;
+}
+
+export interface FundamentalHighlight {
+  key: string;
+  label: string;
+  value: string | number | null;
+  period_end: string | null;
+  period_type: string | null;
+  origin: "retrieved" | "calculated" | "unavailable";
+  currency: string | null;
+  unit: string | null;
+}
+
+export interface RatioValue {
+  name: string;
+  value: string | number | null;
+  category: string;
+  inputs_available: boolean;
+  error: string | null;
+  origin: "retrieved" | "calculated" | "unavailable" | "not_applicable";
+}
+
+export interface FinancialRatios {
+  symbol: string;
+  period_type: string;
+  valuation: Record<string, RatioValue>;
+  profitability: Record<string, RatioValue>;
+  liquidity: Record<string, RatioValue>;
+  leverage: Record<string, RatioValue>;
+  efficiency: Record<string, RatioValue>;
+  growth: Record<string, RatioValue>;
+  calculated_at: string;
+}
+
+export interface FundamentalDimension {
+  dimension: string;
+  classification: string;
+  metrics_used: { key: string; name: string; value: string | number | null; unit: string | null; applicable: boolean; origin: string }[];
+  positive_factors: string[];
+  negative_factors: string[];
+  missing_information: string[];
+  explanation: string;
+}
+
+export interface FundamentalAnalysis {
+  symbol: string;
+  company_name: string;
+  sector: string | null;
+  industry: string | null;
+  overall_classification: string;
+  profitability: FundamentalDimension;
+  growth: FundamentalDimension;
+  financial_stability: FundamentalDimension;
+  valuation: FundamentalDimension;
+  cash_flow_quality: FundamentalDimension;
+  positive_factors: string[];
+  negative_factors: string[];
+  missing_data_warnings: string[];
+}
+
+export interface FundamentalScore {
+  symbol: string;
+  score: string | number | null;
+  classification: string;
+  data_completeness: string | number;
+  metrics_evaluated: number;
+  dimensions_excluded: string[];
+  dimension_scores: { dimension: string; score: string | number | null; weight: string | number; included: boolean; exclusion_reason: string | null; explanation: string | null }[];
+  major_contributors: string[];
+  missing_metrics: string[];
+  explanation: string;
+}
+
+export interface FundamentalsSummary {
+  company: {
+    symbol: string;
+    name: string;
+    exchange: string;
+    sector: string | null;
+    industry: string | null;
+    business_summary: string | null;
+    market_cap: number | null;
+    enterprise_value: number | null;
+    currency: string | null;
+    employees: number | null;
+    website: string | null;
+    data_source: string | null;
+    retrieved_at: string | null;
+    data_freshness: string;
+  };
+  highlights: FundamentalHighlight[];
+  ratios: FinancialRatios | null;
+  analysis: FundamentalAnalysis | null;
+  score: FundamentalScore | null;
+  data_completeness: string | number;
+  last_retrieval_at: string | null;
+}
+
+export interface FundamentalObservation {
+  period_end: string;
+  value: string | number | null;
+  currency: string | null;
+  source: string;
+}
+
+export interface FundamentalHistory {
+  symbol: string;
+  period_type: string;
+  revenue: { observations: FundamentalObservation[]; trend: string; quality: string };
+  net_income: { observations: FundamentalObservation[]; trend: string; quality: string };
+  gross_margin: { observations: FundamentalObservation[]; trend: string; quality: string };
+  operating_margin: { observations: FundamentalObservation[]; trend: string; quality: string };
+  net_margin: { observations: FundamentalObservation[]; trend: string; quality: string };
+  data_warnings: string[];
+}
+
+export interface FinancialStatements {
+  symbol: string;
+  statement_type: string;
+  period_type: string;
+  currency: string | null;
+  lines: { metric_name: string; value: string | number | null; period_end: string | null; currency: string | null }[];
+  periods: string[];
+  retrieved_at: string | null;
+}
+
+export interface DashboardFundamentals {
+  strong_profiles: { symbol: string; name: string; score: string | number | null; classification: string }[];
+  improving_profitability: { symbol: string; name: string; trend: string }[];
+  improving_revenue_growth: { symbol: string; name: string; trend: string }[];
+  elevated_debt: { symbol: string; name: string; debt_to_equity: string | number | null }[];
+  insufficient_data: { symbol: string; name: string; reason?: string }[];
+}
+
+export interface ComparisonMetric {
+  key: string;
+  label: string;
+  category: string;
+  values: Record<string, string | number | null>;
+  comparable: boolean;
+  incomparable_reason: string | null;
+}
+
+export interface CompanyComparison {
+  symbols: string[];
+  companies: { symbol: string; name: string; sector: string | null; currency: string | null; period_end: string | null; overall_classification: string | null; fundamental_score: string | number | null; metrics: Record<string, string | number | null> }[];
+  metrics: ComparisonMetric[];
+  comparability_warnings: string[];
+  sector_warning: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -747,4 +950,59 @@ export async function checkBackend(): Promise<BackendHealth> {
     console.error("Backend connection error:", error);
     throw error;
   }
+}
+
+async function requestFundamentals<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, { cache: "no-store" });
+  if (!response.ok) {
+    let detail = `Fundamentals request failed (${response.status}).`;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (payload.detail) detail = payload.detail;
+    } catch {
+      // Some gateway errors are not JSON responses.
+    }
+    throw new Error(detail);
+  }
+  return response.json() as Promise<T>;
+}
+
+export function fetchCompanyProfile(symbol: string): Promise<CompanyProfile> {
+  return requestFundamentals(`/api/v1/companies/${encodeURIComponent(symbol)}/profile`);
+}
+
+export function fetchSectors(): Promise<SectorListItem[]> {
+  return requestFundamentals("/api/v1/sectors");
+}
+
+export function fetchSectorIntelligence(sector: string): Promise<SectorIntelligence> {
+  return requestFundamentals(`/api/v1/sectors/${encodeURIComponent(sector)}`);
+}
+
+export function fetchFundamentals(symbol: string): Promise<FundamentalsSummary> {
+  return requestFundamentals(`/api/v1/fundamentals/${encodeURIComponent(symbol)}`);
+}
+
+export function fetchFundamentalHistory(
+  symbol: string,
+  periodType: "annual" | "quarterly" = "annual",
+): Promise<FundamentalHistory> {
+  return requestFundamentals(`/api/v1/fundamentals/${encodeURIComponent(symbol)}/history?period_type=${periodType}&limit=12`);
+}
+
+export function fetchFinancialStatements(
+  symbol: string,
+  statementType: "income" | "balance" | "cashflow" = "income",
+): Promise<FinancialStatements> {
+  return requestFundamentals(`/api/v1/fundamentals/${encodeURIComponent(symbol)}/statements?statement_type=${statementType}&period_type=annual&limit=24`);
+}
+
+export function fetchFundamentalsDashboard(limit = 5): Promise<DashboardFundamentals> {
+  return requestFundamentals(`/api/v1/fundamentals/dashboard?limit=${limit}`);
+}
+
+export function fetchCompanyComparison(symbols: string[]): Promise<CompanyComparison> {
+  const params = new URLSearchParams();
+  symbols.forEach((symbol) => params.append("symbols", symbol));
+  return requestFundamentals(`/api/v1/fundamentals/compare?${params.toString()}`);
 }
