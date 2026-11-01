@@ -8,9 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import NewsArticle, NewsArticleCompany, NewsIngestionRun, NewsSource
+from app.db.models import Company, CompanyAlias, NewsArticle, NewsArticleCompany, NewsIngestionRun, NewsSource
 from app.services.news.deduplication import content_hash, url_hash
-from app.services.news.providers import HttpClient
+from app.services.news.providers import CompanyNewsQuery, GoogleNewsRssProvider, HttpClient
 from app.services.news.source_providers import build_news_provider
 from app.services.news.source_registry import (
     ContentPolicyStatus,
@@ -87,8 +87,14 @@ def ingest_news_source(
 
     try:
         provider = build_news_provider(source_config)
-        payload = provider.fetch(client)
-        articles = provider.parse(payload)
+        if isinstance(provider, GoogleNewsRssProvider):
+            articles = provider.fetch_for_companies(
+                client,
+                get_company_news_queries(db),
+            )
+        else:
+            payload = provider.fetch(client)
+            articles = provider.parse(payload)
     except Exception as error:
         return _fail_run(db, run, source_config.provider_key, _safe_error(error))
 
@@ -112,6 +118,38 @@ def ingest_news_source(
         discovered=len(articles),
         inserted=inserted,
         skipped=skipped,
+    )
+
+
+def get_company_news_queries(db: Session) -> tuple[CompanyNewsQuery, ...]:
+    companies = list(
+        db.scalars(
+            select(Company).where(
+                Company.is_active.is_(True),
+                Company.instrument_type == "company",
+            ).order_by(Company.id)
+        )
+    )
+    aliases = list(
+        db.scalars(
+            select(CompanyAlias).where(CompanyAlias.is_active.is_(True))
+        )
+    )
+    aliases_by_company: dict[int, list[str]] = {}
+    for alias in aliases:
+        aliases_by_company.setdefault(alias.company_id, []).append(alias.alias)
+    return tuple(
+        CompanyNewsQuery(
+            name=company.name,
+            aliases=tuple(
+                alias for alias in (
+                    company.symbol,
+                    *aliases_by_company.get(company.id, []),
+                )
+                if alias and alias.casefold() != company.name.casefold()
+            ),
+        )
+        for company in companies
     )
 
 

@@ -42,7 +42,10 @@ dividends/splits, and `threads=False` to avoid excessive concurrent requests.
 
 ### Financial news source registry
 
-The news ingestion foundation currently defines five candidate sources:
+The news ingestion foundation currently defines seven candidate sources:
+
+- Google News RSS Search
+- The Economic Times
 
 - RBI Press Releases
 - RBI Notifications
@@ -50,14 +53,15 @@ The news ingestion foundation currently defines five candidate sources:
 - SEBI Official Updates
 - BSE Notices
 
-All five sources are disabled by default, and their access and content
-policies remain pending review. Public RSS availability does not by itself
-grant permission for permanent storage, redistribution, or AI/ML processing.
+The Google News RSS Search and Economic Times entries are enabled for
+metadata-only ingestion. The remaining five sources are disabled and pending
+review. Public RSS availability does not by itself grant permission for
+permanent storage, redistribution, or AI/ML processing.
 
 The news source registry and provider adapters are configuration-only until a
-source is explicitly approved. The current registry entries remain disabled and
-`pending_review`; public RSS availability is not treated as permission to
-retain, redistribute, or process content.
+source is explicitly approved. The Google News RSS Search and Economic Times
+entries are explicitly approved for metadata-only storage; the remaining
+entries remain `pending_review`.
 
 ### Safe news feed HTTP client
 
@@ -142,6 +146,11 @@ runs and records a sanitized `last_error` for failed runs. Company matching is
 performed through the existing deterministic matcher and unambiguous matches
 are linked during the same article persistence transaction. No scheduled
 polling is installed.
+
+The `google_news_search` provider builds one Google News RSS search per active
+company, including its symbol and active aliases, then merges duplicate URLs
+before persistence. Google wrapper links are retained as metadata URLs and are
+not resolved to publisher URLs.
 
 Inspect registered sources and ingestion history through:
 

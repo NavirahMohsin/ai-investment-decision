@@ -29,6 +29,19 @@ class NewsSourceConfig:
 
 _SOURCE_CONFIGS: tuple[NewsSourceConfig, ...] = (
     NewsSourceConfig(
+        provider_key="google_news_search",
+        name="Google News RSS Search",
+        source_type="google_news_rss",
+        feed_url="https://news.google.com/rss/search",
+        base_url="https://news.google.com",
+        language="en-IN",
+        region="IN",
+        is_enabled=True,
+        description="Company-specific Indian financial news search results.",
+        content_policy_status=ContentPolicyStatus.APPROVED_METADATA_ONLY,
+        attribution_text="Source: Google News",
+    ),
+    NewsSourceConfig(
         provider_key="economic_times_markets",
         name="The Economic Times",
         source_type="rss",

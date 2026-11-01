@@ -3,7 +3,9 @@ from dataclasses import FrozenInstanceError, replace
 import pytest
 
 from app.services.news import (
+    CompanyNewsQuery,
     ContentPolicyStatus,
+    GoogleNewsRssProvider,
     RssAtomProvider,
     UnsupportedNewsSourceTypeError,
     build_news_provider,
@@ -27,6 +29,7 @@ ATOM_FIXTURE = b"""<feed xmlns="http://www.w3.org/2005/Atom"><entry>
 
 
 EXPECTED_FEEDS = {
+    "google_news_search": "https://news.google.com/rss/search",
     "economic_times_markets": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
     "rbi_press_releases": "https://www.rbi.org.in/pressreleases_rss.xml",
     "rbi_notifications": "https://rbi.org.in/notifications_rss.xml",
@@ -45,13 +48,18 @@ def test_registry_contains_configured_sources():
     assert economic_times is not None
     assert economic_times.is_enabled is True
     assert economic_times.content_policy_status == ContentPolicyStatus.APPROVED_METADATA_ONLY
+    google_news = get_source("google_news_search")
+    assert google_news is not None
+    assert google_news.is_enabled is True
+    assert google_news.content_policy_status == ContentPolicyStatus.APPROVED_METADATA_ONLY
     assert all(
         not source.is_enabled
         and source.content_policy_status == ContentPolicyStatus.PENDING_REVIEW
         for source in sources
-        if source.provider_key != "economic_times_markets"
+        if source.provider_key not in {"economic_times_markets", "google_news_search"}
     )
     assert tuple(source.provider_key for source in get_enabled_sources()) == (
+        "google_news_search",
         "economic_times_markets",
     )
 
@@ -89,10 +97,15 @@ def test_each_registered_source_builds_rss_provider(provider_key):
 
     provider = build_news_provider(source)
 
-    assert isinstance(provider, RssAtomProvider)
+    if provider_key == "google_news_search":
+        assert isinstance(provider, GoogleNewsRssProvider)
+    else:
+        assert isinstance(provider, RssAtomProvider)
     assert provider.provider_key == source.provider_key
     assert provider.feed_url == source.feed_url
-    assert provider.source_type == "rss"
+    assert provider.source_type == (
+        "google_news_rss" if provider_key == "google_news_search" else "rss"
+    )
 
 
 def test_provider_parses_rss_with_source_metadata():
@@ -104,6 +117,29 @@ def test_provider_parses_rss_with_source_metadata():
     assert article.source_metadata["source_name"] == source.name
     assert article.source_metadata["region"] == "IN"
     assert article.source_metadata["content_policy_status"] == "pending_review"
+
+
+def test_google_provider_builds_company_specific_search_url():
+    source = get_source("google_news_search")
+    assert source is not None
+    provider = build_news_provider(source)
+
+    class Client:
+        def __init__(self):
+            self.url = None
+
+        def get(self, url):
+            self.url = url
+            return RSS_FIXTURE
+
+    client = Client()
+    articles = provider.fetch_for_companies(
+        client,
+        (CompanyNewsQuery(name="Reliance Industries", aliases=("RIL",)),),
+    )
+
+    assert "q=%28%22Reliance+Industries%22+OR+%22RIL%22%29+when%3A7d" in client.url
+    assert articles[0].source_metadata["company_query"] == "Reliance Industries"
 
 
 def test_provider_parses_atom_without_network_access():

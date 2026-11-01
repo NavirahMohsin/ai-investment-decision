@@ -10,6 +10,8 @@ from app.services.news.deduplication import content_hash, url_hash
 from app.services.news.entity_matching import match_article_companies
 from app.services.news.http_client import SafeFeedHttpClient
 from app.services.news.ingestion import ingest_news_source
+from app.services.news.ingestion import get_company_news_queries
+from app.services.news.providers import GoogleNewsRssProvider
 from app.services.news.source_providers import build_news_provider
 from app.services.news.source_registry import NewsSourceConfig, get_enabled_sources, get_source
 from app.services.news.types import validate_article_for_persistence
@@ -31,7 +33,10 @@ def _selected_sources(source_keys: list[str] | None, all_eligible: bool) -> tupl
 
 def _dry_run(db, config: NewsSourceConfig, client: SafeFeedHttpClient) -> None:
     provider = build_news_provider(config)
-    articles = provider.parse(provider.fetch(client))
+    if isinstance(provider, GoogleNewsRssProvider):
+        articles = provider.fetch_for_companies(client, get_company_news_queries(db))
+    else:
+        articles = provider.parse(provider.fetch(client))
     known_urls = set(db.scalars(select(NewsArticle.url_hash)))
     source_id = db.scalar(
         select(NewsSource.id).where(
