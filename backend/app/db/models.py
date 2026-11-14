@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import JSON, BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.engine import Dialect
@@ -325,11 +326,10 @@ class WatchlistItem(Base):
     __tablename__ = "watchlist_items"
     __table_args__ = (
         UniqueConstraint("watchlist_id", "symbol", name="uq_watchlist_item_symbol"),
-        Index("ix_watchlist_items_watchlist_id", "watchlist_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False, index=True)
+    watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False, index=True, name="watchlist_id")
     symbol: Mapped[str] = mapped_column(String(50), nullable=False)
     added_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
 
@@ -358,4 +358,53 @@ class NewsIngestionRun(Base):
     articles_updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     articles_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+
+
+class MLModel(Base):
+    """Track trained ML models."""
+    __tablename__ = "ml_models"
+    __table_args__ = (
+        UniqueConstraint("model_id", "version", name="uq_ml_model_version"),
+        Index("ix_ml_models_status", "status"),
+        Index("ix_ml_models_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    model_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    model_type: Mapped[str] = mapped_column(String(50), nullable=False)  # logistic_regression, random_forest, xgboost, lightgbm
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # training, ready, deprecated, archived
+    accuracy: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    f1_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    roc_auc: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    feature_count: Mapped[int | None] = mapped_column(Integer)
+    feature_names: Mapped[str] = mapped_column(Text)  # JSON-encoded list
+    classes: Mapped[str] = mapped_column(Text)  # JSON-encoded list
+    hyperparameters: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    training_data_size: Mapped[int | None] = mapped_column(Integer)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class Prediction(Base):
+    """Store prediction results for audit and performance tracking."""
+    __tablename__ = "predictions"
+    __table_args__ = (
+        Index("ix_predictions_company_date", "company_id", "prediction_date"),
+        Index("ix_predictions_prediction_date", "prediction_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prediction_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("ml_models.id", ondelete="SET NULL"), nullable=True)
+    horizon_days: Mapped[int] = mapped_column(Integer, nullable=False)  # 1, 5, 20
+    predicted_class: Mapped[str] = mapped_column(String(20), nullable=False)  # Positive, Negative, Neutral
+    confidence: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    probabilities: Mapped[dict[str, float] | None] = mapped_column(JSON)  # {Positive: 0.6, Negative: 0.3, Neutral: 0.1}
+    as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
+    current_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    prediction_date: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
