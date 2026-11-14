@@ -17,6 +17,8 @@ from app.db.models import (
     NewsArticleCompany,
     NewsIngestionRun,
     NewsSource,
+    Watchlist as WatchlistModel,
+    WatchlistItem,
 )
 from app.db.session import get_db
 from app.schemas.market import (
@@ -43,6 +45,14 @@ from app.schemas.news import (
     PaginationMetadata,
     NewsIngestionTriggerResponse,
 )
+from app.schemas.watchlist import (
+    WatchlistCreate,
+    WatchlistDetail,
+    WatchlistItemAdd,
+    WatchlistItemRead,
+    WatchlistRead,
+    WatchlistUpdate,
+)
 from app.services.indicators import (
     AdjustedCloseUnavailable,
     IndicatorParameters,
@@ -68,6 +78,59 @@ from app.services.refresh import refresh_market_data
 router = APIRouter(prefix="/api/v1")
 _news_ingestion_locks: dict[str, Lock] = {}
 _news_ingestion_locks_guard = Lock()
+
+# ── Watchlist helpers ─────────────────────────────────────────────────────────
+
+def _enrich_watchlist_items(db: Session, items: list) -> list:
+    """Attach live quote data to watchlist items."""
+    from app.schemas.watchlist import WatchlistItemRead
+
+    enriched = []
+    for item in items:
+        # Resolve company info
+        company = db.scalar(
+            select(Company).where(
+                Company.symbol == item.symbol.upper(),
+                Company.is_active.is_(True),
+            )
+        )
+        price = None
+        previous_close = None
+        absolute_change = None
+        percentage_change = None
+        freshness = None
+        name = company.name if company else None
+        exchange = company.exchange if company else None
+
+        if company:
+            try:
+                fields = quote_response_fields(
+                    YahooFinanceProvider().quote(company.provider_symbol)
+                )
+                price = fields.get("price")
+                previous_close = fields.get("previous_close")
+                absolute_change = fields.get("absolute_change")
+                percentage_change = fields.get("percentage_change")
+                freshness = fields.get("freshness")
+            except Exception:
+                freshness = Freshness.UNAVAILABLE.value
+
+        enriched.append(
+            WatchlistItemRead(
+                id=item.id,
+                watchlist_id=item.watchlist_id,
+                symbol=item.symbol,
+                added_at=item.added_at,
+                name=name,
+                exchange=exchange,
+                price=price,
+                previous_close=previous_close,
+                absolute_change=absolute_change,
+                percentage_change=percentage_change,
+                freshness=freshness,
+            )
+        )
+    return enriched
 
 
 def _source_ingestion_lock(source_key: str) -> Lock:
@@ -864,3 +927,170 @@ def market_update_runs(
         runs=[MarketDataUpdateRunRecord.model_validate(r) for r in runs],
         total_count=total,
     )
+
+
+# ── Watchlist routes ──────────────────────────────────────────────────────────
+
+@router.get("/watchlists", response_model=list[WatchlistRead])
+def list_watchlists(db: Session = Depends(get_db)):
+    """Return all watchlists with their item counts."""
+    rows = db.execute(
+        select(
+            WatchlistModel,
+            func.count(WatchlistItem.id).label("item_count"),
+        )
+        .outerjoin(WatchlistItem, WatchlistItem.watchlist_id == WatchlistModel.id)
+        .group_by(WatchlistModel.id)
+        .order_by(WatchlistModel.created_at)
+    ).all()
+    result = []
+    for watchlist, count in rows:
+        result.append(
+            WatchlistRead(
+                id=watchlist.id,
+                name=watchlist.name,
+                description=watchlist.description,
+                created_at=watchlist.created_at,
+                updated_at=watchlist.updated_at,
+                item_count=count,
+            )
+        )
+    return result
+
+
+@router.post("/watchlists", response_model=WatchlistRead, status_code=201)
+def create_watchlist(body: WatchlistCreate, db: Session = Depends(get_db)):
+    """Create a new named watchlist."""
+    existing = db.scalar(
+        select(WatchlistModel).where(WatchlistModel.name == body.name)
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail=f"A watchlist named '{body.name}' already exists")
+    watchlist = WatchlistModel(name=body.name, description=body.description)
+    db.add(watchlist)
+    db.commit()
+    db.refresh(watchlist)
+    return WatchlistRead(
+        id=watchlist.id,
+        name=watchlist.name,
+        description=watchlist.description,
+        created_at=watchlist.created_at,
+        updated_at=watchlist.updated_at,
+        item_count=0,
+    )
+
+
+@router.get("/watchlists/{watchlist_id}", response_model=WatchlistDetail)
+def get_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
+    """Return a watchlist with all items and live quote data."""
+    watchlist = db.get(WatchlistModel, watchlist_id)
+    if watchlist is None:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    items = list(
+        db.scalars(
+            select(WatchlistItem)
+            .where(WatchlistItem.watchlist_id == watchlist_id)
+            .order_by(WatchlistItem.added_at)
+        )
+    )
+    enriched = _enrich_watchlist_items(db, items)
+    return WatchlistDetail(
+        id=watchlist.id,
+        name=watchlist.name,
+        description=watchlist.description,
+        created_at=watchlist.created_at,
+        updated_at=watchlist.updated_at,
+        item_count=len(enriched),
+        items=enriched,
+    )
+
+
+@router.patch("/watchlists/{watchlist_id}", response_model=WatchlistRead)
+def update_watchlist(watchlist_id: int, body: WatchlistUpdate, db: Session = Depends(get_db)):
+    """Rename or update the description of a watchlist."""
+    watchlist = db.get(WatchlistModel, watchlist_id)
+    if watchlist is None:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    if body.name is not None:
+        conflict = db.scalar(
+            select(WatchlistModel).where(
+                WatchlistModel.name == body.name,
+                WatchlistModel.id != watchlist_id,
+            )
+        )
+        if conflict is not None:
+            raise HTTPException(status_code=409, detail=f"A watchlist named '{body.name}' already exists")
+        watchlist.name = body.name
+    if body.description is not None:
+        watchlist.description = body.description
+    db.commit()
+    db.refresh(watchlist)
+    item_count = db.scalar(
+        select(func.count(WatchlistItem.id)).where(WatchlistItem.watchlist_id == watchlist_id)
+    ) or 0
+    return WatchlistRead(
+        id=watchlist.id,
+        name=watchlist.name,
+        description=watchlist.description,
+        created_at=watchlist.created_at,
+        updated_at=watchlist.updated_at,
+        item_count=item_count,
+    )
+
+
+@router.delete("/watchlists/{watchlist_id}", status_code=204)
+def delete_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
+    """Delete a watchlist and all its items."""
+    watchlist = db.get(WatchlistModel, watchlist_id)
+    if watchlist is None:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    db.delete(watchlist)
+    db.commit()
+
+
+@router.post("/watchlists/{watchlist_id}/items", response_model=WatchlistItemRead, status_code=201)
+def add_watchlist_item(watchlist_id: int, body: WatchlistItemAdd, db: Session = Depends(get_db)):
+    """Add a stock symbol to a watchlist."""
+    watchlist = db.get(WatchlistModel, watchlist_id)
+    if watchlist is None:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    symbol = body.symbol.upper().strip()
+    # Verify the symbol exists in the companies universe
+    company = db.scalar(
+        select(Company).where(Company.symbol == symbol, Company.is_active.is_(True))
+    )
+    if company is None:
+        raise HTTPException(status_code=404, detail=f"Unknown or inactive instrument: {symbol}")
+    existing = db.scalar(
+        select(WatchlistItem).where(
+            WatchlistItem.watchlist_id == watchlist_id,
+            WatchlistItem.symbol == symbol,
+        )
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail=f"{symbol} is already in this watchlist")
+    item = WatchlistItem(watchlist_id=watchlist_id, symbol=symbol)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    enriched = _enrich_watchlist_items(db, [item])
+    return enriched[0]
+
+
+@router.delete("/watchlists/{watchlist_id}/items/{symbol}", status_code=204)
+def remove_watchlist_item(watchlist_id: int, symbol: str, db: Session = Depends(get_db)):
+    """Remove a stock symbol from a watchlist."""
+    watchlist = db.get(WatchlistModel, watchlist_id)
+    if watchlist is None:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    item = db.scalar(
+        select(WatchlistItem).where(
+            WatchlistItem.watchlist_id == watchlist_id,
+            WatchlistItem.symbol == symbol.upper(),
+        )
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"{symbol.upper()} is not in this watchlist")
+    db.delete(item)
+    db.commit()
+

@@ -305,6 +305,35 @@ class FundamentalDataUpdateRun(Base):
 
 
 
+class Watchlist(Base):
+    """A named list of stocks tracked by a user (or the default user)."""
+    __tablename__ = "watchlists"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_watchlist_name"),
+        Index("ix_watchlists_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class WatchlistItem(Base):
+    """A single stock entry inside a watchlist."""
+    __tablename__ = "watchlist_items"
+    __table_args__ = (
+        UniqueConstraint("watchlist_id", "symbol", name="uq_watchlist_item_symbol"),
+        Index("ix_watchlist_items_watchlist_id", "watchlist_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False, index=True)
+    symbol: Mapped[str] = mapped_column(String(50), nullable=False)
+    added_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+
+
 class NewsIngestionRun(Base):
     __tablename__ = "news_ingestion_runs"
     __table_args__ = (
