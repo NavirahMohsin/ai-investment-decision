@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     model_config = ConfigDict(
         env_file=str(BACKEND_DIR / ".env"),
         case_sensitive=True,
+        extra="ignore",  # Allow extra keys in .env without failing
     )
     
     DATABASE_URL: str = f"sqlite:///{(BACKEND_DIR / 'data' / 'arthai.db').as_posix()}"

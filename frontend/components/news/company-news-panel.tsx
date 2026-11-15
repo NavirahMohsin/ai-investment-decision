@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { NewsArticleCard } from './news-article-card';
 import { SentimentBadge } from './sentiment-badge';
-import { Loader2, Filter } from 'lucide-react';
+import { Loader2, Filter, RefreshCw } from 'lucide-react';
 import { API_URL } from '@/lib/api';
 
 interface CompanyNewsPanelProps {
@@ -49,8 +49,30 @@ export function CompanyNewsPanel({
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [sentiment, setSentiment] = useState<SentimentPeriod | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSentiment, setSelectedSentiment] = useState<string | null>(null);
+
+  const handleRefreshNews = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/news/refresh`, {
+        method: 'POST',
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        // Refetch articles after refresh
+        const data = await res.json();
+        console.log('News refreshed:', data);
+        // Trigger data fetch again
+        await fetchData();
+      }
+    } catch (err) {
+      console.error('Failed to refresh news:', err);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -105,12 +127,24 @@ export function CompanyNewsPanel({
             <CardTitle>Recent News for {companySymbol}</CardTitle>
             <CardDescription>Last 30 days of news and events</CardDescription>
           </div>
-          {sentiment && (
-            <SentimentBadge
-              sentiment={sentiment.sentiment_trend as any}
-              score={sentiment.avg_sentiment}
-            />
-          )}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRefreshNews}
+              disabled={refreshing}
+              className="gap-1"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            {sentiment && (
+              <SentimentBadge
+                sentiment={sentiment.sentiment_trend as any}
+                score={sentiment.avg_sentiment}
+              />
+            )}
+          </div>
         </div>
 
         {/* Sentiment Stats */}

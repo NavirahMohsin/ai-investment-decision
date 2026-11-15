@@ -30,8 +30,8 @@ def upgrade() -> None:
     sa.Column('hyperparameters', sa.JSON(), nullable=True),
     sa.Column('training_data_size', sa.Integer(), nullable=True),
     sa.Column('description', sa.Text(), nullable=True),
-    sa.Column('created_at', app.db.models.UTCDateTime(timezone=True), nullable=False),
-    sa.Column('updated_at', app.db.models.UTCDateTime(timezone=True), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('model_id', 'version', name='uq_ml_model_version')
     )
@@ -48,8 +48,8 @@ def upgrade() -> None:
     sa.Column('probabilities', sa.JSON(), nullable=True),
     sa.Column('as_of_date', sa.Date(), nullable=False),
     sa.Column('current_price', sa.Numeric(precision=18, scale=6), nullable=True),
-    sa.Column('prediction_date', app.db.models.UTCDateTime(timezone=True), nullable=False),
-    sa.Column('created_at', app.db.models.UTCDateTime(timezone=True), nullable=False),
+    sa.Column('prediction_date', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['company_id'], ['companies.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['model_id'], ['ml_models.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
@@ -65,7 +65,7 @@ def upgrade() -> None:
     op.add_column('news_articles', sa.Column('event_confidence', sa.Numeric(precision=5, scale=4), nullable=True))
     op.add_column('news_articles', sa.Column('market_impact_score', sa.Numeric(precision=5, scale=4), nullable=True))
     op.add_column('news_articles', sa.Column('analysis_version', sa.String(length=20), nullable=True))
-    op.add_column('news_articles', sa.Column('analyzed_at', app.db.models.UTCDateTime(timezone=True), nullable=True))
+    op.add_column('news_articles', sa.Column('analyzed_at', sa.DateTime(timezone=True), nullable=True))
     op.create_index('ix_news_articles_event_category', 'news_articles', ['event_category'], unique=False)
     op.create_index('ix_news_articles_market_impact', 'news_articles', ['market_impact_score'], unique=False)
     op.create_index('ix_news_articles_sentiment_score', 'news_articles', ['sentiment_score'], unique=False)
@@ -93,3 +93,4 @@ def downgrade() -> None:
     op.drop_index('ix_ml_models_created_at', table_name='ml_models')
     op.drop_table('ml_models')
     # ### end Alembic commands ###
+

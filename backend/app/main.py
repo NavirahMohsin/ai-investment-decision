@@ -4,7 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import fundamentals_router, sectors_router, v1_router, predictions_router, news_intelligence_router
+from app.api.routes import fundamentals_router, sectors_router, v1_router, predictions_router, news_intelligence_router, assistant_router
+from app.api.routes.research import research_router
+from app.api.routes.explanations import explanations_router
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.services.refresh import refresh_live_quotes, refresh_market_data
@@ -104,6 +106,9 @@ app.include_router(fundamentals_router)
 app.include_router(sectors_router)
 app.include_router(predictions_router)
 app.include_router(news_intelligence_router)
+app.include_router(assistant_router)
+app.include_router(research_router)
+app.include_router(explanations_router)
 
 
 @app.get("/")

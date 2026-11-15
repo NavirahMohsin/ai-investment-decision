@@ -6,8 +6,9 @@ import logging
 from typing import Optional
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 from pydantic import BaseModel, Field
 
 from app.db.session import get_db
@@ -146,15 +147,15 @@ async def analyze_article(
         "id": article.id,
         "headline": article.headline,
         "sentiment": {
-            "score": float(article.sentiment_score or 0),
-            "confidence": float(article.sentiment_confidence or 0),
-            "label": _score_to_label(float(article.sentiment_score or 0)),
+            "score": float(article.sentiment_score) if article.sentiment_score is not None else 0.0,
+            "confidence": float(article.sentiment_confidence) if article.sentiment_confidence is not None else 0.0,
+            "label": _score_to_label(float(article.sentiment_score) if article.sentiment_score is not None else 0.0),
         },
         "event": {
             "category": article.event_category or "other",
-            "confidence": float(article.event_confidence or 0),
+            "confidence": float(article.event_confidence) if article.event_confidence is not None else 0.0,
         },
-        "market_impact_score": float(article.market_impact_score or 0),
+        "market_impact_score": float(article.market_impact_score) if article.market_impact_score is not None else 0.0,
     }
 
 
@@ -174,13 +175,43 @@ async def analyze_batch(
         Batch analysis results
     """
     service = NewsIntelligenceService(db, use_finbert=False)
-    results = service.analyze_batch(limit=limit, skip_analyzed=skip_analyzed)
+    
+    # Get unanalyzed articles
+    query = select(NewsArticle)
+    if skip_analyzed:
+        query = query.where(NewsArticle.sentiment_score.is_(None))
+    query = query.limit(limit)
+    
+    articles = db.scalars(query).all()
+    
+    if not articles:
+        return {
+            "total": 0,
+            "analyzed": 0,
+            "failed": 0,
+            "message": "No articles to analyze"
+        }
+    
+    analyzed = 0
+    failed = 0
+    
+    for article in articles:
+        success = service.analyze_article(
+            article.id,
+            article.headline,
+            article.summary,
+            None
+        )
+        if success:
+            analyzed += 1
+        else:
+            failed += 1
     
     return {
-        "total": results["total"],
-        "analyzed": results["analyzed"],
-        "failed": results["failed"],
-        "message": f"Analyzed {results['analyzed']} articles"
+        "total": len(articles),
+        "analyzed": analyzed,
+        "failed": failed,
+        "message": f"Analyzed {analyzed} articles"
     }
 
 
@@ -253,7 +284,7 @@ async def get_company_news_timeline(
     start_date: Optional[date] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[date] = Query(None, description="End date YYYY-MM-DD"),
     min_impact: float = Query(0.0, ge=0, le=1),
-    category: Optional[str] = Query(None, regex="^(earnings|acquisition|litigation|regulatory|management|partnership|product|other)$"),
+    category: Optional[str] = Query(None, pattern="^(earnings|acquisition|litigation|regulatory|management|partnership|product|other)$"),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
     signal_service: NewsSignalService = Depends(get_signal_service),
@@ -292,7 +323,7 @@ async def get_company_news_timeline(
 
 @router.get("/articles/sentiment/{sentiment}", response_model=list[ArticleIntelligence])
 async def get_articles_by_sentiment(
-    sentiment: str = Query(..., regex="^(positive|negative|neutral)$"),
+    sentiment: str = Path(..., pattern="^(positive|negative|neutral)$"),
     min_confidence: float = Query(0.5, ge=0, le=1),
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -319,15 +350,15 @@ async def get_articles_by_sentiment(
             "id": a.id,
             "headline": a.headline,
             "sentiment": {
-                "score": float(a.sentiment_score or 0),
-                "confidence": float(a.sentiment_confidence or 0),
+                "score": float(a.sentiment_score) if a.sentiment_score is not None else 0.0,
+                "confidence": float(a.sentiment_confidence) if a.sentiment_confidence is not None else 0.0,
                 "label": sentiment,
             },
             "event": {
                 "category": a.event_category or "other",
-                "confidence": float(a.event_confidence or 0),
+                "confidence": float(a.event_confidence) if a.event_confidence is not None else 0.0,
             },
-            "market_impact_score": float(a.market_impact_score or 0),
+            "market_impact_score": float(a.market_impact_score) if a.market_impact_score is not None else 0.0,
             "published_at": a.published_at.isoformat() if a.published_at else None,
         }
         for a in articles
@@ -336,7 +367,7 @@ async def get_articles_by_sentiment(
 
 @router.get("/articles/event/{category}", response_model=list[ArticleIntelligence])
 async def get_articles_by_event(
-    category: str = Query(..., regex="^(earnings|acquisition|litigation|regulatory|management|partnership|product|other)$"),
+    category: str = Path(..., pattern="^(earnings|acquisition|litigation|regulatory|management|partnership|product|other)$"),
     min_confidence: float = Query(0.5, ge=0, le=1),
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -363,15 +394,15 @@ async def get_articles_by_event(
             "id": a.id,
             "headline": a.headline,
             "sentiment": {
-                "score": float(a.sentiment_score or 0),
-                "confidence": float(a.sentiment_confidence or 0),
-                "label": _score_to_label(float(a.sentiment_score or 0)),
+                "score": float(a.sentiment_score) if a.sentiment_score is not None else 0.0,
+                "confidence": float(a.sentiment_confidence) if a.sentiment_confidence is not None else 0.0,
+                "label": _score_to_label(float(a.sentiment_score) if a.sentiment_score is not None else 0.0),
             },
             "event": {
                 "category": a.event_category or "other",
-                "confidence": float(a.event_confidence or 0),
+                "confidence": float(a.event_confidence) if a.event_confidence is not None else 0.0,
             },
-            "market_impact_score": float(a.market_impact_score or 0),
+            "market_impact_score": float(a.market_impact_score) if a.market_impact_score is not None else 0.0,
             "published_at": a.published_at.isoformat() if a.published_at else None,
         }
         for a in articles
@@ -404,15 +435,15 @@ async def get_high_impact_articles(
             "id": a.id,
             "headline": a.headline,
             "sentiment": {
-                "score": float(a.sentiment_score or 0),
-                "confidence": float(a.sentiment_confidence or 0),
-                "label": _score_to_label(float(a.sentiment_score or 0)),
+                "score": float(a.sentiment_score) if a.sentiment_score is not None else 0.0,
+                "confidence": float(a.sentiment_confidence) if a.sentiment_confidence is not None else 0.0,
+                "label": _score_to_label(float(a.sentiment_score) if a.sentiment_score is not None else 0.0),
             },
             "event": {
                 "category": a.event_category or "other",
-                "confidence": float(a.event_confidence or 0),
+                "confidence": float(a.event_confidence) if a.event_confidence is not None else 0.0,
             },
-            "market_impact_score": float(a.market_impact_score or 0),
+            "market_impact_score": float(a.market_impact_score) if a.market_impact_score is not None else 0.0,
             "published_at": a.published_at.isoformat() if a.published_at else None,
         }
         for a in articles
@@ -422,7 +453,7 @@ async def get_high_impact_articles(
 @router.get("/company/{company_id}/articles", response_model=list[ArticleIntelligence])
 async def get_company_articles(
     company_id: int,
-    sentiment: Optional[str] = Query(None, regex="^(positive|negative|neutral)$"),
+    sentiment: Optional[str] = Query(None, pattern="^(positive|negative|neutral)$"),
     category: Optional[str] = Query(None),
     min_impact: Optional[float] = Query(None, ge=0, le=1),
     limit: int = Query(50, ge=1, le=500),
@@ -459,15 +490,15 @@ async def get_company_articles(
             "id": a[0].id,
             "headline": a[0].headline,
             "sentiment": {
-                "score": float(a[0].sentiment_score or 0),
-                "confidence": float(a[0].sentiment_confidence or 0),
-                "label": _score_to_label(float(a[0].sentiment_score or 0)),
+                "score": float(a[0].sentiment_score) if a[0].sentiment_score is not None else 0.0,
+                "confidence": float(a[0].sentiment_confidence) if a[0].sentiment_confidence is not None else 0.0,
+                "label": _score_to_label(float(a[0].sentiment_score) if a[0].sentiment_score is not None else 0.0),
             },
             "event": {
                 "category": a[0].event_category or "other",
-                "confidence": float(a[0].event_confidence or 0),
+                "confidence": float(a[0].event_confidence) if a[0].event_confidence is not None else 0.0,
             },
-            "market_impact_score": float(a[0].market_impact_score or 0),
+            "market_impact_score": float(a[0].market_impact_score) if a[0].market_impact_score is not None else 0.0,
             "published_at": a[0].published_at.isoformat() if a[0].published_at else None,
         }
         for a in results
@@ -552,3 +583,109 @@ def _score_to_label(score: float) -> str:
         return "negative"
     else:
         return "neutral"
+
+
+@router.get("/debug/stats")
+async def debug_stats(db: Session = Depends(get_db)) -> dict:
+    """Debug endpoint: show article statistics."""
+    total = db.query(NewsArticle).count()
+    analyzed = db.query(NewsArticle).filter(NewsArticle.sentiment_score.isnot(None)).count()
+    
+    return {
+        "total_articles": total,
+        "analyzed_articles": analyzed,
+        "unanalyzed_articles": total - analyzed,
+        "next_step": "POST /api/v1/news/analyze/batch to analyze unanalyzed articles"
+    }
+
+
+@router.get("")
+async def list_articles(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    company: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> dict:
+    """List recent articles, optionally filtered by company symbol."""
+    
+    if company:
+        # Find company by symbol
+        companies = db.query(Company).filter(Company.symbol.ilike(company)).all()
+        if not companies:
+            return {"items": [], "pagination": {"total": 0, "page": page, "page_size": page_size, "total_pages": 0}}
+        
+        company_ids = [c.id for c in companies]
+        
+        # Get articles linked to these companies
+        articles = db.query(NewsArticle).join(
+            NewsArticleCompany
+        ).filter(NewsArticleCompany.company_id.in_(company_ids)).limit(limit).all()
+    else:
+        articles = db.query(NewsArticle).limit(limit).all()
+    
+    return {
+        "items": [
+            {
+                "id": a.id,
+                "headline": a.headline,
+                "sentiment": {
+                    "score": float(a.sentiment_score) if a.sentiment_score is not None else 0.0,
+                    "confidence": float(a.sentiment_confidence) if a.sentiment_confidence is not None else 0.0,
+                    "label": _score_to_label(float(a.sentiment_score) if a.sentiment_score is not None else 0.0),
+                },
+                "event": {
+                    "category": a.event_category or "other",
+                    "confidence": float(a.event_confidence) if a.event_confidence is not None else 0.0,
+                },
+                "market_impact_score": float(a.market_impact_score) if a.market_impact_score is not None else 0.0,
+                "published_at": a.published_at.isoformat() if a.published_at else None,
+            }
+            for a in articles
+        ],
+        "pagination": {
+            "total": len(articles),
+            "page": page,
+            "page_size": page_size,
+            "total_pages": 1
+        }
+    }
+
+
+@router.post("/refresh")
+async def refresh_news(
+    db: Session = Depends(get_db),
+) -> dict:
+    """Manually trigger news ingestion and analysis.
+    
+    Returns:
+        Status of ingestion
+    """
+    from app.services.news.ingestion import ingest_all_active_sources
+    
+    try:
+        results = ingest_all_active_sources()
+        
+        total_discovered = sum(r.articles_discovered for r in results)
+        total_inserted = sum(r.articles_inserted for r in results)
+        total_analyzed = total_inserted  # All inserted articles are analyzed during ingestion
+        
+        return {
+            "status": "success",
+            "message": f"Ingested {total_inserted} new articles",
+            "discovered": total_discovered,
+            "inserted": total_inserted,
+            "analyzed": total_analyzed,
+            "sources": len(results)
+        }
+    except Exception as e:
+        logger.error(f"Error refreshing news: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "discovered": 0,
+            "inserted": 0,
+            "analyzed": 0,
+            "sources": 0
+        }
+

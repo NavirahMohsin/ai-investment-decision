@@ -70,12 +70,20 @@ class NewsScheduler:
     def _run(self) -> None:
         """Main scheduler loop."""
         logger.info("News scheduler loop started")
+        
+        # Run ingestion immediately on startup
+        try:
+            logger.info("Running initial news ingestion on startup")
+            ingest_all_active_sources()
+            logger.info("Initial news ingestion completed")
+        except Exception as e:
+            logger.error(f"Error in initial news ingestion: {e}", exc_info=True)
 
         while not self._stop_event.is_set():
             try:
-                logger.info("Starting automated news ingestion")
+                logger.info("Starting scheduled news ingestion")
                 ingest_all_active_sources()
-                logger.info("Automated news ingestion completed")
+                logger.info("Scheduled news ingestion completed")
             except Exception as e:
                 logger.error(f"Error in news ingestion: {e}", exc_info=True)
 

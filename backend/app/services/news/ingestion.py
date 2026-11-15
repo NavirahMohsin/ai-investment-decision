@@ -212,6 +212,7 @@ def _persist_articles(
     skipped = 0
     seen_external_ids: set[str] = set()
     seen_url_hashes: set[str] = set()
+    newly_inserted_articles: list[NewsArticle] = []
 
     with db.begin_nested():
         for article in articles:
@@ -272,7 +273,12 @@ def _persist_articles(
             if article.external_id:
                 known_external_ids.add(article.external_id)
                 seen_external_ids.add(article.external_id)
+            newly_inserted_articles.append(row)
     db.commit()
+    
+    # Analyze newly inserted articles
+    if newly_inserted_articles:
+        _analyze_articles(db, newly_inserted_articles)
 
     return inserted, skipped
 
@@ -369,6 +375,39 @@ def _safe_error(error: Exception) -> str:
     return f"{type(error).__name__}: {message}"
 
 
+def _analyze_articles(db: Session, articles: list[NewsArticle]) -> None:
+    """Analyze newly ingested articles for sentiment and events.
+    
+    Args:
+        db: Database session
+        articles: List of articles to analyze
+    """
+    from app.services.news_analysis import NewsAnalyzer
+    from decimal import Decimal
+    
+    analyzer = NewsAnalyzer(use_finbert=False)  # Use TextBlob for speed during ingestion
+    
+    for article in articles:
+        try:
+            analysis = analyzer.analyze(article.headline, article.summary, None)
+            
+            article.sentiment_score = Decimal(str(analysis.sentiment.score))
+            article.sentiment_confidence = Decimal(str(analysis.sentiment.confidence))
+            article.sentiment_model = analysis.sentiment.model_used
+            article.event_category = analysis.event_category.category.value
+            article.event_confidence = Decimal(str(analysis.event_category.confidence))
+            article.market_impact_score = Decimal(str(analysis.market_impact_score))
+            article.analysis_version = analysis.analysis_version
+            article.analyzed_at = datetime.now(timezone.utc)
+        except Exception as e:
+            # Log error but don't fail ingestion
+            import logging
+            logging.error(f"Failed to analyze article {article.id}: {e}")
+            continue
+    
+    db.commit()
+
+
 def ingest_all_active_sources() -> list[NewsIngestionResult]:
     """Ingest news from all active, approved sources.
     
@@ -377,7 +416,7 @@ def ingest_all_active_sources() -> list[NewsIngestionResult]:
     """
     from app.db.session import SessionLocal
     from app.services.news.source_registry import get_source
-    from app.services.news.providers import SafeFeedHttpClient
+    from app.services.news.http_client import SafeFeedHttpClient
     
     db = SessionLocal()
     try:
