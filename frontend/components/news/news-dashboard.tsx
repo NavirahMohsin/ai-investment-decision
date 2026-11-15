@@ -23,6 +23,7 @@ import {
   fetchCompanies,
   fetchNews,
   fetchNewsSources,
+  triggerNewsIngestionAll,
   type Company,
   type NewsArticle,
   type NewsSource,
@@ -125,6 +126,8 @@ export function NewsDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
   const [dateError, setDateError] = useState<string | null>(null);
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestionSuccess, setIngestionSuccess] = useState<string | null>(null);
   const requestId = useRef(0);
   const newsController = useRef<AbortController | null>(null);
 
@@ -220,6 +223,22 @@ export function NewsDashboard() {
     setPage(1);
   }
 
+  async function handleTriggerIngestion() {
+    setIngesting(true);
+    setIngestionSuccess(null);
+    try {
+      const results = await triggerNewsIngestionAll();
+      const total = results.reduce((sum, r) => sum + r.inserted_count, 0);
+      setIngestionSuccess(`Ingestion complete: ${total} new articles from ${results.length} sources`);
+      // Reload news after a short delay
+      setTimeout(() => void loadNews(), 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to trigger news ingestion");
+    } finally {
+      setIngesting(false);
+    }
+  }
+
   return (
     <div className="space-y-7">
       <section className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
@@ -233,11 +252,27 @@ export function NewsDashboard() {
             Track financial developments, market announcements, and company-related news.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <CircleDot className="size-3.5 text-cyan-300" />
-          Stored news data · no live streaming
+        <div className="flex flex-col items-end gap-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <CircleDot className="size-3.5 text-cyan-300" />
+            Stored news data · no live streaming
+          </div>
+          <Button 
+            onClick={() => void handleTriggerIngestion()} 
+            disabled={ingesting || refreshing}
+            className="gap-2"
+          >
+            <RefreshCw className={`size-4 ${ingesting ? "animate-spin" : ""}`} />
+            {ingesting ? "Ingesting..." : "Refresh News"}
+          </Button>
         </div>
       </section>
+
+      {ingestionSuccess && (
+        <div className="rounded-lg border border-green-300/30 bg-green-300/10 p-3 text-sm text-green-300">
+          {ingestionSuccess}
+        </div>
+      )}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {([

@@ -1,5 +1,5 @@
 
-const API_URL =
+export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export interface Company {
@@ -442,6 +442,33 @@ export interface CompanyComparison {
   sector_warning: string | null;
 }
 
+export interface WatchlistItemRead {
+  id: number;
+  watchlist_id: number;
+  symbol: string;
+  added_at: string;
+  name: string | null;
+  exchange: string | null;
+  price: number | string | null;
+  previous_close: number | string | null;
+  absolute_change: number | string | null;
+  percentage_change: number | string | null;
+  freshness: string | null;
+}
+
+export interface WatchlistRead {
+  id: number;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  item_count: number;
+}
+
+export interface WatchlistDetail extends WatchlistRead {
+  items: WatchlistItemRead[];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -797,6 +824,32 @@ export async function fetchCompanyNews(
   return fetchNewsPage(`/api/v1/companies/${encodeURIComponent(symbol)}/news`, options);
 }
 
+export interface NewsIngestionTriggerResult {
+  run_id: number;
+  source_key: string;
+  source_name: string;
+  status: "success" | "partial_success" | "failed";
+  discovered_count: number;
+  inserted_count: number;
+  skipped_count: number;
+  failed_count: number;
+  started_at: string;
+  completed_at: string;
+  message: string;
+}
+
+export async function triggerNewsIngestionAll(): Promise<NewsIngestionTriggerResult[]> {
+  const response = await fetch(`${API_URL}/api/v1/news/ingestion/all`, {
+    method: "POST",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to trigger news ingestion: ${error}`);
+  }
+  return response.json() as Promise<NewsIngestionTriggerResult[]>;
+}
+
 export async function fetchNewsIngestionRuns(
   options: FetchNewsRunsOptions = {},
 ): Promise<NewsIngestionRunsResponse> {
@@ -1005,4 +1058,121 @@ export function fetchCompanyComparison(symbols: string[]): Promise<CompanyCompar
   const params = new URLSearchParams();
   symbols.forEach((symbol) => params.append("symbols", symbol));
   return requestFundamentals(`/api/v1/fundamentals/compare?${params.toString()}`);
+}
+
+// ── Watchlist API ────────────────────────────────────────────────────────────
+
+export async function fetchWatchlists(): Promise<WatchlistRead[]> {
+  const response = await fetch(`${API_URL}/api/v1/watchlists`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Watchlists request failed (${response.status})`);
+  }
+  return response.json() as Promise<WatchlistRead[]>;
+}
+
+export async function fetchWatchlist(watchlistId: number): Promise<WatchlistDetail> {
+  const response = await fetch(`${API_URL}/api/v1/watchlists/${watchlistId}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error("Watchlist not found");
+    }
+    throw new Error(`Watchlist request failed (${response.status})`);
+  }
+  return response.json() as Promise<WatchlistDetail>;
+}
+
+export async function createWatchlist(name: string, description?: string): Promise<WatchlistRead> {
+  const response = await fetch(`${API_URL}/api/v1/watchlists`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description: description || null }),
+  });
+  if (!response.ok) {
+    let message = `Create watchlist failed (${response.status})`;
+    try {
+      const error = (await response.json()) as { detail?: string };
+      if (error.detail) message = error.detail;
+    } catch {
+      // fallback to generic message
+    }
+    throw new Error(message);
+  }
+  return response.json() as Promise<WatchlistRead>;
+}
+
+export async function updateWatchlist(
+  watchlistId: number,
+  name?: string,
+  description?: string,
+): Promise<WatchlistRead> {
+  const body: Record<string, string | null> = {};
+  if (name !== undefined) body.name = name;
+  if (description !== undefined) body.description = description || null;
+
+  const response = await fetch(`${API_URL}/api/v1/watchlists/${watchlistId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    let message = `Update watchlist failed (${response.status})`;
+    try {
+      const error = (await response.json()) as { detail?: string };
+      if (error.detail) message = error.detail;
+    } catch {
+      // fallback to generic message
+    }
+    throw new Error(message);
+  }
+  return response.json() as Promise<WatchlistRead>;
+}
+
+export async function deleteWatchlist(watchlistId: number): Promise<void> {
+  const response = await fetch(`${API_URL}/api/v1/watchlists/${watchlistId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(`Delete watchlist failed (${response.status})`);
+  }
+}
+
+export async function addWatchlistItem(
+  watchlistId: number,
+  symbol: string,
+): Promise<WatchlistItemRead> {
+  const response = await fetch(`${API_URL}/api/v1/watchlists/${watchlistId}/items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol: symbol.toUpperCase() }),
+  });
+  if (!response.ok) {
+    let message = `Add item failed (${response.status})`;
+    try {
+      const error = (await response.json()) as { detail?: string };
+      if (error.detail) message = error.detail;
+    } catch {
+      // fallback to generic message
+    }
+    throw new Error(message);
+  }
+  return response.json() as Promise<WatchlistItemRead>;
+}
+
+export async function removeWatchlistItem(
+  watchlistId: number,
+  symbol: string,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/api/v1/watchlists/${watchlistId}/items/${encodeURIComponent(symbol.toUpperCase())}`,
+    {
+      method: "DELETE",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Remove item failed (${response.status})`);
+  }
 }

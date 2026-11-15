@@ -57,10 +57,6 @@ function StockCard({ company, quote }: { company: Company; quote?: MarketQuote }
             <p className="text-muted-foreground">Latest quote</p>
             <p className="mt-1 text-foreground">{quote?.price == null ? "Unavailable" : Number(quote.price).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p>
           </div>
-          <div>
-            <p className="text-muted-foreground">Freshness</p>
-            <p className="mt-1 text-foreground">{quote?.freshness ?? "Unavailable"}</p>
-          </div>
         </div>
         <div className="mt-4 flex items-center gap-1 text-xs text-cyan-300 opacity-0 transition-opacity group-hover:opacity-100">
           View historical data <ArrowUpRight className="size-3.5" />

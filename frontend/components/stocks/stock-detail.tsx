@@ -279,7 +279,6 @@ export function StockDetail({ symbol }: { symbol: string }) {
             <CardContent className="grid gap-4 p-5 sm:grid-cols-4 sm:px-6">
               <SummaryValue label="Yahoo quote" value={formatPrice(quote?.price)} />
               <SummaryValue label="Change" value={quote?.percentage_change == null ? "—" : `${Number(quote.percentage_change).toFixed(2)}%`} />
-              <SummaryValue label="Freshness" value={quote?.freshness ?? "UNAVAILABLE"} />
               <SummaryValue label="Provider timestamp" value={quote?.market_timestamp ? new Date(quote.market_timestamp).toLocaleString("en-IN") : "—"} />
             </CardContent>
           </Card>

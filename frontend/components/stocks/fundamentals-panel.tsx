@@ -95,7 +95,7 @@ export function FundamentalsPanel({ symbol }: { symbol: string }) {
     <section className="space-y-5" aria-labelledby="fundamentals-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><p className="text-sm text-cyan-300">Company fundamentals</p><h3 id="fundamentals-title" className="mt-1 text-xl font-semibold">Financial intelligence</h3></div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground"><Database className="size-4 text-cyan-300" /> Yahoo Finance · {summary.company.data_freshness}</div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground"><Database className="size-4 text-cyan-300" /> Yahoo Finance</div>
       </div>
       {summary.company.business_summary && <Card className="border-border/70 bg-card/80 shadow-none"><CardContent className="p-5 text-sm leading-6 text-muted-foreground">{summary.company.business_summary}</CardContent></Card>}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

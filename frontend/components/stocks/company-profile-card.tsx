@@ -33,7 +33,6 @@ export function CompanyProfileCard({ symbol }: { symbol: string }) {
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><p className="text-sm text-cyan-300">Company profile</p><CardTitle className="mt-1">{profile.name}</CardTitle></div>
-          <Badge variant="outline">{profile.data_freshness}</Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

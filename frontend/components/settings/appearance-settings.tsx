@@ -51,7 +51,7 @@ export function AppearanceSettings() {
             <Button
               key={theme.value}
               variant={preferences.theme === theme.value ? "default" : "outline"}
-              onClick={() => updatePreferences({ theme })}
+              onClick={() => updatePreferences({ theme: theme.value })}
               className="h-auto flex-col items-start justify-start p-4 text-left"
             >
               <span className="font-medium">{theme.label}</span>

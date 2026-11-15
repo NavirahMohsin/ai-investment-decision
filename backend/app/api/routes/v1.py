@@ -444,6 +444,83 @@ def trigger_news_ingestion(
     )
 
 
+@router.post(
+    "/news/ingestion/all",
+    response_model=list[NewsIngestionTriggerResponse],
+)
+def trigger_all_news_ingestion(db: Session = Depends(get_db)):
+    """Trigger news ingestion for all active, approved sources."""
+    sources = list(
+        db.scalars(
+            select(NewsSource)
+            .where(NewsSource.is_active.is_(True))
+            .order_by(NewsSource.provider_key)
+        )
+    )
+    
+    results: list[NewsIngestionTriggerResponse] = []
+    
+    for source in sources:
+        source_config = get_source(source.provider_key)
+        if source_config is None or not source_config.is_enabled:
+            continue
+        if source_config.content_policy_status not in {
+            ContentPolicyStatus.APPROVED_CONTENT_STORAGE,
+            ContentPolicyStatus.APPROVED_METADATA_ONLY,
+        }:
+            continue
+        
+        lock = _source_ingestion_lock(source.provider_key)
+        if not lock.acquire(blocking=False):
+            continue
+        
+        try:
+            if source_config.content_policy_status == ContentPolicyStatus.APPROVED_METADATA_ONLY:
+                result = ingest_news_source(
+                    db,
+                    source_config,
+                    SafeFeedHttpClient(),
+                    allow_metadata_only=True,
+                )
+            else:
+                result = ingest_news_source(
+                    db,
+                    source_config,
+                    SafeFeedHttpClient(),
+                )
+            
+            run = db.get(NewsIngestionRun, result.run_id)
+            if run is not None:
+                if result.status == "failed":
+                    message = "News ingestion completed with failures"
+                elif result.status == "partial_success":
+                    message = "News ingestion completed with skipped articles"
+                else:
+                    message = "News ingestion completed successfully"
+                
+                results.append(
+                    NewsIngestionTriggerResponse(
+                        run_id=result.run_id,
+                        source_key=result.provider_key,
+                        source_name=source_config.name,
+                        status=result.status,
+                        discovered_count=result.articles_discovered,
+                        inserted_count=result.articles_inserted,
+                        skipped_count=result.articles_skipped,
+                        failed_count=0,
+                        started_at=run.started_at,
+                        completed_at=run.completed_at,
+                        message=message,
+                    )
+                )
+        except Exception:
+            pass
+        finally:
+            lock.release()
+    
+    return results
+
+
 @router.get("/news/{article_id}", response_model=NewsArticleDetailRead)
 def news_article_detail(article_id: int, db: Session = Depends(get_db)):
     row = db.execute(

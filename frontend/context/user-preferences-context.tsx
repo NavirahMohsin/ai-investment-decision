@@ -48,6 +48,8 @@ interface UserPreferencesContextValue {
   loading: boolean;
   updatePreferences: (updates: Partial<UserPreferences>) => void;
   resetPreferences: () => void;
+  formatDate: (date: Date | string) => string;
+  formatPrice: (price: number | string | null, symbol?: string) => string;
 }
 
 const UserPreferencesContext = createContext<UserPreferencesContextValue | null>(
@@ -75,16 +77,86 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Apply theme to document
+  // Apply theme to document and listen for system preference changes
   useEffect(() => {
-    const theme = preferences.theme;
-    if (theme === "system") {
-      const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const applyTheme = () => {
+      const theme = preferences.theme;
+      let isDark: boolean;
+
+      if (theme === "system") {
+        isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      } else {
+        isDark = theme === "dark";
+      }
+
       document.documentElement.classList.toggle("dark", isDark);
-    } else {
-      document.documentElement.classList.toggle("dark", theme === "dark");
-    }
+      document.documentElement.classList.toggle("light", !isDark);
+    };
+
+    applyTheme();
+
+    // Listen for system theme changes
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = () => {
+      if (preferences.theme === "system") {
+        applyTheme();
+      }
+    };
+
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
   }, [preferences.theme]);
+
+  const formatDate = useCallback(
+    (date: Date | string): string => {
+      const dateObj = typeof date === "string" ? new Date(date) : date;
+      const day = String(dateObj.getDate()).padStart(2, "0");
+      const month = String(dateObj.getMonth() + 1).padStart(2, "0");
+      const year = dateObj.getFullYear();
+
+      switch (preferences.dateFormat) {
+        case "MM/DD/YYYY":
+          return `${month}/${day}/${year}`;
+        case "YYYY-MM-DD":
+          return `${year}-${month}-${day}`;
+        case "DD/MM/YYYY":
+        default:
+          return `${day}/${month}/${year}`;
+      }
+    },
+    [preferences.dateFormat]
+  );
+
+  const formatPrice = useCallback(
+    (price: number | string | null, symbol?: string): string => {
+      if (price === null || price === undefined) {
+        return preferences.currency === "INR" ? "₹--" : "$--";
+      }
+
+      const numPrice = typeof price === "string" ? parseFloat(price) : price;
+      if (Number.isNaN(numPrice)) {
+        return preferences.currency === "INR" ? "₹--" : "$--";
+      }
+
+      const currencySymbol = preferences.currency === "INR" ? "₹" : "$";
+      let formatted: string;
+
+      if (preferences.currency === "INR") {
+        formatted = numPrice.toLocaleString("en-IN", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+      } else {
+        formatted = numPrice.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+      }
+
+      return symbol ? `${currencySymbol}${formatted} ${symbol}` : `${currencySymbol}${formatted}`;
+    },
+    [preferences.currency]
+  );
 
   const updatePreferences = useCallback(
     (updates: Partial<UserPreferences>) => {
@@ -117,6 +189,8 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         loading,
         updatePreferences,
         resetPreferences,
+        formatDate,
+        formatPrice,
       }}
     >
       {children}

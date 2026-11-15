@@ -13,6 +13,10 @@ from app.services.fundamentals_scheduler import (
     initialize_fundamentals_scheduler,
     shutdown_fundamentals_scheduler,
 )
+from app.services.news_scheduler import (
+    initialize_news_scheduler,
+    shutdown_news_scheduler,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -56,6 +60,14 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Fundamentals scheduler initialized")
     
+    # News ingestion scheduler
+    logger.info("Initializing news scheduler...")
+    initialize_news_scheduler(
+        interval_hours=24,  # Every 24 hours
+        auto_start=True,
+    )
+    logger.info("News scheduler initialized")
+    
     yield
     
     # Shutdown
@@ -66,6 +78,8 @@ async def lifespan(app: FastAPI):
     if settings.ENABLE_FUNDAMENTALS_SCHEDULER:
         logger.info("Stopping fundamentals scheduler...")
         shutdown_fundamentals_scheduler(timeout=5.0)
+    logger.info("Stopping news scheduler...")
+    shutdown_news_scheduler(timeout=5.0)
     logger.info("Shutdown complete")
 
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from threading import Lock
+import time
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,7 +14,9 @@ from app.services.ingestion import ingest_instrument
 from app.services.market_data import classify_freshness, store_market_snapshot
 from app.services.providers.yahoo import YahooFinanceProvider
 
+logger = logging.getLogger(__name__)
 _refresh_lock = Lock()
+INTER_COMPANY_PAUSE = 3.0  # 3 second pause between companies
 
 
 def refresh_market_data(db: Session, symbol: str | None = None) -> dict[str, int | str]:
@@ -32,7 +36,8 @@ def refresh_market_data(db: Session, symbol: str | None = None) -> dict[str, int
         provider = YahooFinanceProvider()
         successful = 0
         failed = 0
-        for company in companies:
+        
+        for i, company in enumerate(companies):
             latest = db.scalar(
                 select(DailyMarketData.trading_date)
                 .where(
@@ -43,10 +48,18 @@ def refresh_market_data(db: Session, symbol: str | None = None) -> dict[str, int
             )
             start = latest + timedelta(days=1) if latest else date.today() - timedelta(days=365 * DEFAULT_HISTORY_YEARS)
             run = ingest_instrument(db, company, provider, start, date.today())
+            
             if run.status in {"success", "empty"}:
                 successful += 1
+                logger.info(f"[{i+1}/{len(companies)}] {company.symbol}: OK ({run.records_inserted} new, {run.records_updated} updated)")
             else:
                 failed += 1
+                logger.warning(f"[{i+1}/{len(companies)}] {company.symbol}: {run.status} - {run.error_message}")
+            
+            # Pause before next company (but not after the last one)
+            if i < len(companies) - 1:
+                time.sleep(INTER_COMPANY_PAUSE)
+        
         return {
             "status": "success" if failed == 0 else "partial_success",
             "instruments_processed": len(companies),
@@ -66,7 +79,7 @@ def refresh_live_quotes(db: Session, store_snapshots: bool = True) -> dict[str, 
     failed = 0
     failed_symbols: list[str] = []
     
-    for company in companies:
+    for i, company in enumerate(companies):
         try:
             quote = provider.quote(company.provider_symbol)
             freshness = classify_freshness(quote["market_timestamp"], quote["retrieved_at"])
@@ -75,9 +88,15 @@ def refresh_live_quotes(db: Session, store_snapshots: bool = True) -> dict[str, 
                 store_market_snapshot(db, company, quote, freshness)
             
             successful += 1
-        except Exception:
+            logger.debug(f"[{i+1}/{len(companies)}] {company.symbol}: Quote updated")
+        except Exception as e:
             failed += 1
             failed_symbols.append(company.symbol)
+            logger.warning(f"[{i+1}/{len(companies)}] {company.symbol}: Failed to get quote - {type(e).__name__}: {str(e)[:100]}")
+        
+        # Pause before next quote (but not after the last one)
+        if i < len(companies) - 1:
+            time.sleep(INTER_COMPANY_PAUSE)
     
     return {
         "status": "success" if failed == 0 else "partial_success",

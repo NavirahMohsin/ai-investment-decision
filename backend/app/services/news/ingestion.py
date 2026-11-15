@@ -367,3 +367,60 @@ def _safe_error(error: Exception) -> str:
     message = str(error).splitlines()[0][:240]
     message = re.sub(r"https?://\S+", "[redacted-url]", message)
     return f"{type(error).__name__}: {message}"
+
+
+def ingest_all_active_sources() -> list[NewsIngestionResult]:
+    """Ingest news from all active, approved sources.
+    
+    This is called by the news scheduler every 24 hours.
+    Returns results for all successfully ingested sources.
+    """
+    from app.db.session import SessionLocal
+    from app.services.news.source_registry import get_source
+    from app.services.news.providers import SafeFeedHttpClient
+    
+    db = SessionLocal()
+    try:
+        sources = list(
+            db.scalars(
+                select(NewsSource)
+                .where(NewsSource.is_active.is_(True))
+                .order_by(NewsSource.provider_key)
+            )
+        )
+        
+        results: list[NewsIngestionResult] = []
+        client = SafeFeedHttpClient()
+        
+        for source in sources:
+            source_config = get_source(source.provider_key)
+            if source_config is None or not source_config.is_enabled:
+                continue
+            if source_config.content_policy_status not in {
+                ContentPolicyStatus.APPROVED_CONTENT_STORAGE,
+                ContentPolicyStatus.APPROVED_METADATA_ONLY,
+            }:
+                continue
+            
+            try:
+                allow_metadata_only = (
+                    source_config.content_policy_status
+                    == ContentPolicyStatus.APPROVED_METADATA_ONLY
+                )
+                result = ingest_news_source(
+                    db,
+                    source_config,
+                    client,
+                    allow_metadata_only=allow_metadata_only,
+                )
+                results.append(result)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    f"Failed to ingest from {source.provider_key}: {e}"
+                )
+        
+        return results
+    finally:
+        db.close()
+

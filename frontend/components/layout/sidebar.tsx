@@ -7,9 +7,7 @@ import {
   Bot,
   BrainCircuit,
   ChevronRight,
-  Database,
   FlaskConical,
-  History,
   LayoutDashboard,
   LineChart,
   Settings,
@@ -33,8 +31,6 @@ const navigation: NavigationGroup[] = [
       { label: "Stock Explorer", href: "/stocks", icon: TrendingUp },
       { label: "Sector Intelligence", href: "/sectors", icon: Layers3 },
       { label: "News Intelligence", href: "/news", icon: BrainCircuit },
-      { label: "News Sources", href: "/news/sources", icon: Database },
-      { label: "Ingestion History", href: "/news/ingestion", icon: History },
     ],
   },
   {
@@ -80,7 +76,28 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{group.label}</p>
             <div className="space-y-1">
               {group.items.map((item) => {
-                const active = item.href === "/news" ? pathname.startsWith("/news") : pathname === item.href;
+                // Handle special cases for routes that nest under a prefix
+                let active = false;
+                if (item.href === "/news") {
+                  active = pathname.startsWith("/news");
+                } else if (item.href === "/stocks") {
+                  active = pathname === "/stocks" || pathname.startsWith("/stocks/");
+                } else if (item.href === "/predictions") {
+                  active = pathname === "/predictions";
+                } else if (item.href === "/research") {
+                  active = pathname === "/research";
+                } else if (item.href === "/agents") {
+                  active = pathname === "/agents";
+                } else if (item.href === "/models") {
+                  active = pathname === "/models";
+                } else if (item.href === "/sectors") {
+                  active = pathname === "/sectors" || pathname.startsWith("/sectors/");
+                } else if (item.href === "/settings") {
+                  active = pathname === "/settings";
+                } else {
+                  active = pathname === item.href;
+                }
+
                 const Icon = item.icon;
                 return (
                   <Link
