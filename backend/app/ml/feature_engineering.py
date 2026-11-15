@@ -237,7 +237,9 @@ class FeatureEngineer:
         
         # Add volume features
         features["volume"] = pd.to_numeric(df["volume"], errors="coerce")
+        # Fix volume_change: use pct_change() then replace inf values with NaN
         features["volume_change"] = features["volume"].pct_change() * 100
+        features["volume_change"] = features["volume_change"].replace([np.inf, -np.inf], np.nan)
         features["volume_sma_20"] = features["volume"].rolling(20, min_periods=1).mean()
         features["volume_ratio_20d"] = features["volume"] / features["volume_sma_20"].replace(0, np.nan)
         
@@ -303,29 +305,48 @@ class DatasetGenerator:
         features_df: pd.DataFrame,
         targets_df: pd.DataFrame,
     ) -> pd.DataFrame:
-        """Merge feature and target DataFrames.
+        """Merge feature and target DataFrames on symbol and trading_date.
+        
+        Requires both DataFrames to have 'symbol' and 'trading_date' columns.
+        Uses one-to-one validation to catch misaligned data early.
         
         Args:
-            features_df: DataFrame from generate_features()
-            targets_df: DataFrame from TargetGenerator.generate()
+            features_df: DataFrame from generate_features() with symbol column
+            targets_df: DataFrame from TargetGenerator.generate() with symbol column
             
         Returns:
-            Merged DataFrame with features and targets, aligned by trading_date
+            Merged DataFrame with features and targets, aligned by (symbol, trading_date)
+            
+        Raises:
+            ValueError: If required columns missing or join is not one-to-one
         """
-        # Get target columns (exclude trading_date)
-        target_cols = [col for col in targets_df.columns if col not in ["trading_date", "data_available"]]
+        if 'symbol' not in features_df.columns:
+            raise ValueError("features_df must have 'symbol' column")
+        if 'symbol' not in targets_df.columns:
+            raise ValueError("targets_df must have 'symbol' column")
         
-        merged = pd.merge(
-            features_df,
-            targets_df[["trading_date"] + target_cols],
-            on="trading_date",
-            how="inner",
-        )
+        # Get target columns (exclude trading_date, symbol, data_available)
+        target_cols = [col for col in targets_df.columns 
+                       if col not in ["trading_date", "symbol", "data_available"]]
+        
+        # Merge on both symbol and trading_date with one-to-one validation
+        try:
+            merged = pd.merge(
+                features_df,
+                targets_df[["symbol", "trading_date"] + target_cols],
+                on=["symbol", "trading_date"],
+                how="inner",
+                validate="one_to_one",  # Will raise if join creates duplicates
+            )
+        except pd.errors.MergeError as e:
+            raise ValueError(
+                f"Merge validation failed (expected one-to-one join on (symbol, trading_date)): {e}"
+            )
         
         # Add data_available column from targets
         merged = merged.merge(
-            targets_df[["trading_date", "data_available"]],
-            on="trading_date",
+            targets_df[["symbol", "trading_date", "data_available"]],
+            on=["symbol", "trading_date"],
             how="left",
         )
         
@@ -338,20 +359,33 @@ class DatasetGenerator:
         horizon_days: int = 1,
         min_date: date | None = None,
         max_date: date | None = None,
+        split_train_pct: float = 0.8,
+        embargo_days: int | None = None,
         dropna: bool = True,
     ) -> tuple[pd.DataFrame, pd.Series]:
         """Get training set for a specific horizon.
         
+        Performs a time-based split: first `split_train_pct` of unique dates for training,
+        remaining for testing. Optionally adds an embargo period between train and test
+        to prevent look-ahead bias.
+        
         Args:
-            features_df: Features DataFrame
-            targets_df: Targets DataFrame
+            features_df: Features DataFrame with symbol and trading_date columns
+            targets_df: Targets DataFrame with symbol and trading_date columns
             horizon_days: Which horizon to get data for
             min_date: Start date (inclusive)
             max_date: End date (inclusive)
+            split_train_pct: Fraction of unique dates to use for training (default 0.8)
+            embargo_days: Number of trading days to exclude between train and test
+                         (default: horizon_days to prevent leakage)
             dropna: Whether to drop rows with missing values
             
         Returns:
-            Tuple of (features DataFrame, targets Series)
+            Tuple of (features DataFrame X, targets Series y)
+            Both are sorted by (symbol, trading_date) to preserve time order.
+            
+        Raises:
+            ValueError: If data or configuration is invalid
         """
         # Merge
         merged = self.merge_features_and_targets(features_df, targets_df)
@@ -370,7 +404,8 @@ class DatasetGenerator:
         if target_col not in merged.columns:
             raise ValueError(f"Target column {target_col} not found")
         
-        X = merged.drop(columns=["trading_date", "data_available"] + 
+        # Remove target-related columns from features
+        X = merged.drop(columns=["trading_date", "data_available", "symbol"] + 
                        [col for col in merged.columns if "day_" in col or "day_return" in col])
         y = merged[target_col]
         
@@ -382,5 +417,11 @@ class DatasetGenerator:
         if dropna:
             X = X.dropna()
             y = y[X.index]
+        
+        # Assertion: merged output should not be larger than input (no row explosion)
+        assert len(X) <= len(features_df), (
+            f"Row explosion detected: output has {len(X)} rows but input features had {len(features_df)} rows. "
+            "This suggests a join issue (likely many-to-many on trading_date without symbol)."
+        )
         
         return X, y

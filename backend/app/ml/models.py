@@ -105,19 +105,19 @@ class LogisticRegressionConfig:
 @dataclass
 class RandomForestConfig:
     """Hyperparameters for Random Forest."""
-    n_estimators: int = 100
-    max_depth: int | None = None
-    min_samples_split: int = 2
-    min_samples_leaf: int = 1
+    n_estimators: int = 200  # Increased from 100 for better performance
+    max_depth: int = 12  # Bounded to prevent overfitting
+    min_samples_split: int = 5  # Increased from 2
+    min_samples_leaf: int = 20  # Increased from 1
     max_features: str = "sqrt"
-    n_jobs: int = -1
+    n_jobs: int = -1  # Use all processors
 
 
 @dataclass
 class XGBoostConfig:
     """Hyperparameters for XGBoost."""
-    n_estimators: int = 100
-    max_depth: int = 6
+    n_estimators: int = 200  # Bounded with early stopping
+    max_depth: int = 7  # Explicit bound
     learning_rate: float = 0.1
     subsample: float = 0.8
     colsample_bytree: float = 0.8
@@ -128,8 +128,8 @@ class XGBoostConfig:
 @dataclass
 class LightGBMConfig:
     """Hyperparameters for LightGBM."""
-    n_estimators: int = 100
-    max_depth: int = 7
+    n_estimators: int = 200  # Bounded with early stopping
+    max_depth: int = 8  # Explicit bound
     learning_rate: float = 0.1
     num_leaves: int = 31
     subsample: float = 0.8
@@ -197,7 +197,8 @@ class ModelTrainer:
                 C=lr_config.C,
                 max_iter=lr_config.max_iter,
                 solver=lr_config.solver,
-                penalty=lr_config.penalty,
+                # Note: 'penalty' parameter was deprecated in scikit-learn 1.8
+                # L2 is the default, no need to specify it
                 random_state=self.config.random_state,
                 class_weight=self.config.class_weight,
             )
@@ -228,6 +229,8 @@ class ModelTrainer:
                 colsample_bytree=xgb_config.colsample_bytree,
                 reg_alpha=xgb_config.reg_alpha,
                 reg_lambda=xgb_config.reg_lambda,
+                tree_method="hist",  # Faster histogram-based method
+                n_jobs=-1,
                 random_state=self.config.random_state,
                 eval_metric="mlogloss",
                 use_label_encoder=False,
@@ -248,8 +251,10 @@ class ModelTrainer:
                 colsample_bytree=lgb_config.colsample_bytree,
                 reg_alpha=lgb_config.reg_alpha,
                 reg_lambda=lgb_config.reg_lambda,
+                n_jobs=-1,
                 random_state=self.config.random_state,
                 verbose=-1,
+                class_weight=self.config.class_weight,
             )
     
     def train(

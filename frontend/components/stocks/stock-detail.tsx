@@ -12,6 +12,7 @@ import { IndicatorCharts } from "@/components/stocks/indicator-chart/indicator-c
 import { IndicatorControls, type IndicatorVisibility } from "@/components/stocks/indicator-chart/indicator-controls";
 import { FundamentalsPanel } from "@/components/stocks/fundamentals-panel";
 import { CompanyProfileCard } from "@/components/stocks/company-profile-card";
+import { CompanyNewsPanel } from "@/components/news/company-news-panel";
 
 const ranges = [
   { label: "1M", days: 31 },
@@ -270,6 +271,7 @@ export function StockDetail({ symbol }: { symbol: string }) {
           </Card>
           <CompanyProfileCard symbol={symbol} />
           <FundamentalsPanel symbol={symbol} />
+          {company && <CompanyNewsPanel companyId={company.id} companySymbol={symbol} />}
           <div className="flex justify-end">
             <Link href={`/stocks/compare?symbols=${encodeURIComponent(symbol)}`} className="text-sm text-cyan-300 hover:underline">
               Compare this company with peers

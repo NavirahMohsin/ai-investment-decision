@@ -131,6 +131,9 @@ class NewsArticle(Base):
         UniqueConstraint("source_id", "external_id", name="uq_news_articles_source_external_id"),
         Index("ix_news_articles_published_at", "published_at"),
         Index("ix_news_articles_source_published_at", "source_id", "published_at"),
+        Index("ix_news_articles_sentiment_score", "sentiment_score"),
+        Index("ix_news_articles_event_category", "event_category"),
+        Index("ix_news_articles_market_impact", "market_impact_score"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -145,6 +148,49 @@ class NewsArticle(Base):
     discovered_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
     language: Mapped[str | None] = mapped_column(String(20))
     content_hash: Mapped[str | None] = mapped_column(String(64))
+    
+    # Analysis fields (added in Phase 3)
+    sentiment_score: Mapped[Decimal | None] = mapped_column(
+        Numeric(3, 2),
+        nullable=True,
+        doc="Sentiment score from -1.0 (negative) to 1.0 (positive)"
+    )
+    sentiment_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4),
+        nullable=True,
+        doc="Confidence in sentiment analysis (0-1)"
+    )
+    sentiment_model: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        doc="Model used for sentiment analysis (finbert, textblob, etc.)"
+    )
+    event_category: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        doc="Event category: earnings, acquisition, litigation, regulatory, management, partnership, product, other"
+    )
+    event_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4),
+        nullable=True,
+        doc="Confidence in event classification (0-1)"
+    )
+    market_impact_score: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4),
+        nullable=True,
+        doc="Estimated market impact (0-1), likelihood to affect stock price"
+    )
+    analysis_version: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        doc="Version of analysis model used (v1.0, v1.1, etc.)"
+    )
+    analyzed_at: Mapped[datetime | None] = mapped_column(
+        UTCDateTime(),
+        nullable=True,
+        doc="When analysis was performed"
+    )
+    
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now, onupdate=utc_now)
 

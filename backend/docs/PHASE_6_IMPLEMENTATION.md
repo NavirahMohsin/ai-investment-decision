@@ -24,7 +24,7 @@ Phase 6 establishes a comprehensive Market Intelligence module for ArthAI using 
 - Latest available price retrieval
 - Historical OHLCV data with adjusted close
 - Company metadata extraction
-- Index data retrieval (NIFTY50, SENSEX)
+- Index data retrieval (NIFTY50, SENSEX)D
 - Comprehensive error handling and retry logic
 - Rate limit handling with exponential backoff
 

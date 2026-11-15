@@ -194,9 +194,12 @@ class ModelServer:
     ) -> tuple[Any, ModelMetadata, Optional[StandardScaler]]:
         """Load model from disk or cache.
         
+        Special handling: if model_id is "stock_prediction_xgboost_all" and version is "latest",
+        tries to load "best_model" first (production best model), then falls back to latest version.
+        
         Args:
             model_id: Model identifier
-            version: Model version
+            version: Model version ("latest" or specific version)
             
         Returns:
             Tuple of (model, metadata, scaler)
@@ -204,6 +207,29 @@ class ModelServer:
         Raises:
             FileNotFoundError: If model not found
         """
+        # Try best_model first if looking for latest xgboost
+        if model_id == "stock_prediction_xgboost_all" and version == "latest":
+            best_model_path = self.model_dir / "best_model.pkl"
+            if best_model_path.exists():
+                logger.info("Loading best_model (production model)")
+                try:
+                    with open(best_model_path, "rb") as f:
+                        model = pickle.load(f)
+                    
+                    best_metadata_path = self.model_dir / "best_model_metadata.pkl"
+                    with open(best_metadata_path, "rb") as f:
+                        metadata = pickle.load(f)
+                    
+                    scaler = None
+                    best_scaler_path = self.model_dir / "best_model_scaler.pkl"
+                    if best_scaler_path.exists():
+                        with open(best_scaler_path, "rb") as f:
+                            scaler = pickle.load(f)
+                    
+                    return model, metadata, scaler
+                except Exception as e:
+                    logger.warning(f"Failed to load best_model, falling back to latest: {e}")
+        
         cache_key = f"{model_id}_{version}"
         
         # Check cache first
