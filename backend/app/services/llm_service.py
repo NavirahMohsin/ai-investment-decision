@@ -82,40 +82,26 @@ class LLMService:
     ) -> tuple[str, Optional[dict]]:
         """Call Gemini API with structured outputs support."""
         try:
-            model = genai.GenerativeModel(
-                model_name="gemini-2.5-flash",
-                system_instruction=system_prompt or "",
+            # Build request with system instruction
+            messages = []
+            if system_prompt:
+                messages.append({
+                    "role": "user",
+                    "parts": [{"text": system_prompt}]
+                })
+            
+            messages.append({
+                "role": "user",
+                "parts": [{"text": prompt}]
+            })
+
+            response = genai.GenerativeModel("gemini-2.0-flash").generate_content(
+                contents=messages,
                 generation_config=genai.types.GenerationConfig(
                     temperature=temperature,
                     max_output_tokens=max_tokens,
                 ),
             )
-
-            # If response format is specified, use JSON schema
-            if response_format:
-                # Gemini's structured output with JSON schema
-                json_schema = {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                }
-                
-                # Extract schema from Pydantic model
-                schema = response_format.model_json_schema()
-                json_schema["properties"] = schema.get("properties", {})
-                json_schema["required"] = schema.get("required", [])
-
-                response = model.generate_content(
-                    prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        response_mime_type="application/json",
-                        response_schema=json_schema,
-                        temperature=temperature,
-                        max_output_tokens=max_tokens,
-                    ),
-                )
-            else:
-                response = model.generate_content(prompt)
 
             text_content = response.text
             

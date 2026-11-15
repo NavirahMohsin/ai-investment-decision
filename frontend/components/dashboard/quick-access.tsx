@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, FileSearch, Newspaper, Sparkles, TrendingUp } from "lucide-react";
+import { ArrowUpRight, FileSearch, Newspaper, Sparkles, TrendingUp, Lightbulb, MessageCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 const links = [
@@ -7,6 +7,8 @@ const links = [
   { title: "Analyse Financial News", description: "Track signals across market coverage.", href: "/news", icon: Newspaper },
   { title: "Generate AI Research", description: "Build a research brief with ArthAI.", href: "/research", icon: FileSearch },
   { title: "Explore Predictions", description: "Review available model insights.", href: "/predictions", icon: Sparkles },
+  { title: "AI Explanations", description: "Understand predictions and signals with AI.", href: "/explanations", icon: Lightbulb },
+  { title: "Ask the Assistant", description: "Multi-turn Q&A about investments.", href: "/assistant", icon: MessageCircle },
 ];
 
 export function QuickAccess() {
@@ -16,7 +18,7 @@ export function QuickAccess() {
         <p className="text-xs font-medium uppercase tracking-[0.16em] text-cyan-300">Get started</p>
         <h2 id="quick-access-title" className="mt-1 text-lg font-semibold">Quick access</h2>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {links.map(({ title, description, href, icon: Icon }) => (
           <Link href={href} key={href} className="group">
             <Card className="h-full border-border/70 bg-card/80 shadow-none transition-colors group-hover:border-primary/50 group-hover:bg-card">
