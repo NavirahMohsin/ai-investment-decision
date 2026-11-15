@@ -98,6 +98,7 @@ class ModelMetadata:
 
 
 @dataclass
+@dataclass
 class PredictionResult:
     """Result of a single prediction.
     
