@@ -85,12 +85,12 @@ class FinancialAssistant:
             try:
                 latest = self.db.query(DailyMarketData).filter(
                     DailyMarketData.company_id == company.id
-                ).order_by(DailyMarketData.date.desc()).first()
+                ).order_by(DailyMarketData.trading_date.desc()).first()
                 
                 if latest:
                     context["latest_price"] = float(latest.close)
-                    context["date"] = latest.date.isoformat()
-                    context["previous_close"] = float(latest.open)
+                    context["date"] = latest.trading_date.isoformat() if latest.trading_date else "N/A"
+                    context["previous_close"] = float(latest.open) if latest.open else "N/A"
                     
                     # Calculate change
                     if latest.open and latest.close:
@@ -118,14 +118,14 @@ class FinancialAssistant:
                     NewsArticleCompany
                 ).filter(
                     NewsArticleCompany.company_id == company.id
-                ).order_by(NewsArticle.published_date.desc()).limit(5).all()
+                ).order_by(NewsArticle.published_at.desc()).limit(5).all()
                 
                 if news_articles:
                     context["recent_news"] = [
                         {
-                            "title": article.title,
-                            "summary": article.summary or article.content[:200],
-                            "date": article.published_date.isoformat(),
+                            "title": article.headline,
+                            "summary": article.summary or article.canonical_url[:200],
+                            "date": article.published_at.isoformat() if article.published_at else "N/A",
                         }
                         for article in news_articles
                     ]

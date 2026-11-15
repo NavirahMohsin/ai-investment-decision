@@ -50,22 +50,19 @@ class ResearchAssistant:
             # Get latest market price
             latest_price = self.db.query(DailyMarketData).filter(
                 DailyMarketData.company_id == company.id
-            ).order_by(DailyMarketData.date.desc()).first()
+            ).order_by(DailyMarketData.trading_date.desc()).first()
 
             # Get financial data
             financials = self.db.query(CompanyFinancial).filter(
                 CompanyFinancial.company_id == company.id
-            ).order_by(CompanyFinancial.quarter.desc()).first()
+            ).order_by(CompanyFinancial.period_end.desc()).first()
 
             # Build context
             context = {
                 "name": company.name,
                 "ticker": ticker,
                 "sector": company.sector,
-                "description": company.description if hasattr(company, 'description') else "",
-                "market_cap": company.market_cap if hasattr(company, 'market_cap') else "N/A",
                 "current_price": float(latest_price.close) if latest_price else "N/A",
-                "employees": company.employees if hasattr(company, 'employees') else "N/A",
             }
 
             prompt = f"""
@@ -75,10 +72,10 @@ Company Information:
 {json.dumps(context, indent=2, default=str)}
 
 Structure your response as markdown with these sections:
-1. **At a Glance** - Quick key facts (market cap, sector, employees, founded)
+1. **At a Glance** - Quick key facts (sector, trading info)
 2. **Business Model** - What the company does (2-3 sentences)
 3. **Key Services/Products** - Main revenue drivers
-4. **Recent Performance** - Latest financial metrics
+4. **Recent Performance** - Latest trading data
 5. **Market Position** - Competitive stance
 
 Guidelines:
@@ -87,6 +84,7 @@ Guidelines:
 - Keep it 400-600 words
 - Format as professional markdown
 - Be factual based on provided data
+- Include uncertainty disclaimer
 """
 
             response = self.llm_service.generate(
@@ -96,7 +94,9 @@ Guidelines:
                 max_tokens=1500,
             )
 
-            return response.content
+            # Add uncertainty footer
+            footer = "\n\n---\n*This overview is AI-generated and should be verified with official company sources and recent financial statements.*"
+            return response.content + footer if response else "Unable to generate overview"
 
         except Exception as e:
             logger.error(f"Error generating company overview: {e}")
@@ -119,7 +119,7 @@ Guidelines:
             # Get historical market data
             market_data = self.db.query(DailyMarketData).filter(
                 DailyMarketData.company_id == company.id
-            ).order_by(DailyMarketData.date.desc()).limit(250).all()
+            ).order_by(DailyMarketData.trading_date.desc()).limit(250).all()
 
             if not market_data:
                 return f"No market data available for {ticker}"
@@ -170,7 +170,8 @@ Guidelines:
                 max_tokens=1500,
             )
 
-            return response.content
+            footer = "\n\n---\n*This analysis is based on historical market data and AI interpretation. Past performance does not guarantee future results.*"
+            return response.content + footer if response else "Unable to generate analysis"
 
         except Exception as e:
             logger.error(f"Error analyzing financial performance: {e}")
@@ -192,7 +193,7 @@ Guidelines:
             # Get market data for context
             latest_price = self.db.query(DailyMarketData).filter(
                 DailyMarketData.company_id == company.id
-            ).order_by(DailyMarketData.date.desc()).first()
+            ).order_by(DailyMarketData.trading_date.desc()).first()
 
             context = {
                 "name": company.name,
@@ -224,7 +225,6 @@ Guidelines:
 - Draw from {company.sector} sector knowledge
 - Include investment implications
 - Keep professional tone
-- Use emoji markers
 """
 
             response = self.llm_service.generate(
@@ -234,7 +234,8 @@ Guidelines:
                 max_tokens=2000,
             )
 
-            return response.content
+            footer = "\n\n---\n*This SWOT analysis is AI-generated and represents one perspective. Conduct your own research for investment decisions.*"
+            return response.content + footer if response else "Unable to generate SWOT"
 
         except Exception as e:
             logger.error(f"Error generating SWOT: {e}")
@@ -259,7 +260,7 @@ Guidelines:
                 if company:
                     latest = self.db.query(DailyMarketData).filter(
                         DailyMarketData.company_id == company.id
-                    ).order_by(DailyMarketData.date.desc()).first()
+                    ).order_by(DailyMarketData.trading_date.desc()).first()
 
                     companies_data[ticker] = {
                         "name": company.name,
@@ -300,7 +301,8 @@ Guidelines:
                 max_tokens=2000,
             )
 
-            return response.content
+            footer = "\n\n---\n*This comparison is AI-generated. Always verify data with official sources before making investment decisions.*"
+            return response.content + footer if response else "Unable to generate comparison"
 
         except Exception as e:
             logger.error(f"Error comparing companies: {e}")
