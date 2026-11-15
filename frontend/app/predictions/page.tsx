@@ -55,16 +55,11 @@ export default function PredictionsPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PredictionResult | BatchPredictionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [models, setModels] = useState<AvailableModel[]>([]);
-  const [selectedModel, setSelectedModel] = useState('');
   const [horizon, setHorizon] = useState(1);
-  const [modelLoading, setModelLoading] = useState(true);
   const [noModelsAvailable, setNoModelsAvailable] = useState(false);
 
-  // Load available models on mount
-  const loadModels = async () => {
-    setModelLoading(true);
-    setNoModelsAvailable(false);
+  // Check if models are available (optional)
+  const checkModelsAvailable = async () => {
     try {
       const response = await fetch(`${API_URL}/api/v1/predictions/models`, {
         cache: 'no-store',
@@ -72,37 +67,22 @@ export default function PredictionsPage() {
       if (response.ok) {
         const data = await response.json();
         const modelList = data.models || [];
-        if (modelList.length > 0) {
-          setModels(modelList);
-          setSelectedModel(modelList[0].model_id);
-        } else {
-          setNoModelsAvailable(true);
-          setError('No trained models are currently available. Please train a model first.');
-        }
+        setNoModelsAvailable(modelList.length === 0);
       } else {
         setNoModelsAvailable(true);
-        setError('Unable to load available models from the server.');
       }
     } catch (err) {
-      console.error('Failed to load models:', err);
+      console.error('Failed to check models:', err);
       setNoModelsAvailable(true);
-      setError('Failed to connect to the prediction service.');
-    } finally {
-      setModelLoading(false);
     }
   };
 
-  // Load models when component mounts
+  // Check models when component mounts
   useEffect(() => {
-    loadModels();
+    checkModelsAvailable();
   }, []);
 
   const makePrediction = async () => {
-    if (!selectedModel) {
-      setError('Please select a model');
-      return;
-    }
-
     setLoading(true);
     setError(null);
     setResult(null);
@@ -117,7 +97,7 @@ export default function PredictionsPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             symbol: symbol.toUpperCase(),
-            model_id: selectedModel,
+            model_id: 'latest', // Backend will auto-select best model
             model_version: 'latest',
             horizon_days: horizon,
             include_features: false,
@@ -138,7 +118,7 @@ export default function PredictionsPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             symbols: symbolList,
-            model_id: selectedModel,
+            model_id: 'latest', // Backend will auto-select best model
             model_version: 'latest',
             horizon_days: horizon,
           }),
@@ -201,16 +181,8 @@ export default function PredictionsPage() {
             <CardDescription>Configure your prediction request</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Model Loading State */}
-            {modelLoading && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Loading available models...
-              </div>
-            )}
-
             {/* No Models Available */}
-            {!modelLoading && noModelsAvailable && (
+            {noModelsAvailable && (
               <div className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-3">
                 <AlertCircle className="size-5 flex-shrink-0 text-yellow-600 mt-0.5" />
                 <div>
@@ -222,7 +194,7 @@ export default function PredictionsPage() {
               </div>
             )}
 
-            {!modelLoading && !noModelsAvailable && (
+            {!noModelsAvailable && (
               <>
                 {/* Mode Selection */}
                 <div>
@@ -242,25 +214,6 @@ export default function PredictionsPage() {
                     </Button>
                   </div>
                 </div>
-
-                {/* Model Selection */}
-                {models.length > 0 && (
-                  <div>
-                    <label className="text-sm font-medium">Model</label>
-                    <select
-                      value={selectedModel}
-                      onChange={(e) => setSelectedModel(e.target.value)}
-                      className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
-                    >
-                      {models.map((m) => (
-                        <option key={`${m.model_id}_${m.version}`} value={m.model_id}>
-                          {m.model_id} ({m.model_type}) - v{m.version}
-                          {m.accuracy ? ` - Accuracy: ${(m.accuracy * 100).toFixed(1)}%` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
 
                 {/* Horizon Selection */}
                 <div>

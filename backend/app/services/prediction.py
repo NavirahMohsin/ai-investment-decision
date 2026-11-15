@@ -196,7 +196,7 @@ class PredictionService:
             raise ValueError(f"Prediction failed: {e}")
         
         # Get current price
-        current_price = float(market_data[-1]["close"]) if market_data else None
+        current_price = float(market_data[-1].close) if market_data else None
         
         # Prepare features dict if requested
         features_dict = None
@@ -211,7 +211,7 @@ class PredictionService:
             confidence=result.confidence,
             probabilities=result.class_probabilities,
             horizon_days=request.horizon_days,
-            as_of_date=market_data[-1]["trading_date"] if market_data else date.today(),
+            as_of_date=market_data[-1].trading_date if market_data else date.today(),
             model_id=request.model_id,
             prediction_id=str(uuid.uuid4()),
             timestamp=datetime.now(timezone.utc),

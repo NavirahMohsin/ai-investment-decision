@@ -125,6 +125,7 @@ async def predict_single(
     request: PredictionRequestSchema,
     db: Session = Depends(get_db),
     prediction_service: PredictionService = Depends(get_prediction_service),
+    model_server: ModelServer = Depends(get_model_server),
 ) -> dict:
     """Generate prediction for a single stock.
     
@@ -132,14 +133,26 @@ async def predict_single(
         request: Prediction request
         db: Database session
         prediction_service: Prediction service
+        model_server: Model server
         
     Returns:
         Prediction result
     """
     try:
+        # If model_id not specified or is 'latest', use best model
+        model_id = request.model_id
+        if not model_id or model_id == 'latest':
+            models = model_server.list_models()
+            if not models:
+                raise ValueError("No trained models available")
+            # Select model with highest accuracy
+            best_model = max(models, key=lambda m: m.get('accuracy', 0))
+            model_id = best_model['model_id']
+            logger.info(f"Auto-selected best model: {model_id} (accuracy: {best_model.get('accuracy', 'N/A')})")
+        
         pred_request = PredictionRequest(
             symbol=request.symbol,
-            model_id=request.model_id,
+            model_id=model_id,
             model_version=request.model_version,
             horizon_days=request.horizon_days,
             include_features=request.include_features,
@@ -152,7 +165,7 @@ async def predict_single(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
-        raise HTTPException(status_code=500, detail="Prediction failed")
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
 @router.post("/predict/batch", response_model=BatchPredictionResponseSchema)
@@ -160,6 +173,7 @@ async def predict_batch(
     request: BatchPredictionRequestSchema,
     db: Session = Depends(get_db),
     prediction_service: PredictionService = Depends(get_prediction_service),
+    model_server: ModelServer = Depends(get_model_server),
 ) -> dict:
     """Generate predictions for multiple stocks.
     
@@ -167,15 +181,27 @@ async def predict_batch(
         request: Batch prediction request
         db: Database session
         prediction_service: Prediction service
+        model_server: Model server
         
     Returns:
         List of predictions and summary statistics
     """
     try:
+        # If model_id not specified or is 'latest', use best model
+        model_id = request.model_id
+        if not model_id or model_id == 'latest':
+            models = model_server.list_models()
+            if not models:
+                raise ValueError("No trained models available")
+            # Select model with highest accuracy
+            best_model = max(models, key=lambda m: m.get('accuracy', 0))
+            model_id = best_model['model_id']
+            logger.info(f"Auto-selected best model: {model_id} (accuracy: {best_model.get('accuracy', 'N/A')})")
+        
         predictions = prediction_service.predict_batch(
             db=db,
             symbols=request.symbols,
-            model_id=request.model_id,
+            model_id=model_id,
             model_version=request.model_version,
             horizon_days=request.horizon_days,
         )
@@ -194,7 +220,7 @@ async def predict_batch(
         raise
     except Exception as e:
         logger.error(f"Batch prediction failed: {e}")
-        raise HTTPException(status_code=500, detail="Batch prediction failed")
+        raise HTTPException(status_code=500, detail=f"Batch prediction failed: {str(e)}")
 
 
 @router.post("/predict/watchlist", response_model=BatchPredictionResponseSchema)
