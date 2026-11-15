@@ -41,7 +41,7 @@ class ResearchAssistant:
         try:
             # Fetch company data
             company = self.db.query(Company).filter(
-                Company.ticker == ticker.upper()
+                Company.symbol == ticker.upper()
             ).first()
 
             if not company:
@@ -110,7 +110,7 @@ Guidelines:
         """Analyze and explain financial performance."""
         try:
             company = self.db.query(Company).filter(
-                Company.ticker == ticker.upper()
+                Company.symbol == ticker.upper()
             ).first()
 
             if not company:
@@ -183,7 +183,7 @@ Guidelines:
         """Generate SWOT analysis for a company."""
         try:
             company = self.db.query(Company).filter(
-                Company.ticker == ticker.upper()
+                Company.symbol == ticker.upper()
             ).first()
 
             if not company:
@@ -253,7 +253,7 @@ Guidelines:
 
             for ticker in tickers:
                 company = self.db.query(Company).filter(
-                    Company.ticker == ticker.upper()
+                    Company.symbol == ticker.upper()
                 ).first()
 
                 if company:
@@ -314,7 +314,7 @@ Guidelines:
         """Generate comprehensive research report."""
         try:
             company = self.db.query(Company).filter(
-                Company.ticker == ticker.upper()
+                Company.symbol == ticker.upper()
             ).first()
 
             if not company:

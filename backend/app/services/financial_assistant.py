@@ -69,7 +69,7 @@ class FinancialAssistant:
         """Retrieve comprehensive context about a company."""
         try:
             company = self.db.query(Company).filter(
-                Company.ticker == ticker.upper()
+                Company.symbol == ticker.upper()
             ).first()
             
             if not company:
@@ -77,7 +77,7 @@ class FinancialAssistant:
 
             context = {
                 "company_name": company.name,
-                "ticker": company.ticker,
+                "ticker": company.symbol,
                 "sector": company.sector,
             }
 
