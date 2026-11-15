@@ -190,8 +190,8 @@ class PredictionService:
         feature_cols = latest_features.select_dtypes(include=['number']).columns.tolist()
         latest_features_numeric = latest_features[feature_cols]
         
-        # Get feature values and order as expected by model
-        feature_values = latest_features_numeric.values
+        # Get feature values and flatten to 1D for single prediction
+        feature_values = latest_features_numeric.values.flatten()
         
         # Make prediction
         try:
@@ -211,7 +211,7 @@ class PredictionService:
         features_dict = None
         if request.include_features:
             feature_names = latest_features_numeric.columns.tolist()
-            features_dict = dict(zip(feature_names, feature_values[0]))
+            features_dict = dict(zip(feature_names, feature_values))
         
         # Create response
         response = PredictionResponse(
@@ -269,7 +269,7 @@ class PredictionService:
         for item in items:
             try:
                 request = PredictionRequest(
-                    symbol=item.company.symbol,
+                    symbol=item.symbol,
                     model_id=model_id,
                     model_version=model_version,
                     horizon_days=horizon_days,
@@ -277,7 +277,7 @@ class PredictionService:
                 result = self.predict_for_symbol(db, request)
                 results.append(result)
             except Exception as e:
-                logger.warning(f"Prediction failed for {item.company.symbol}: {e}")
+                logger.warning(f"Prediction failed for {item.symbol}: {e}")
         
         return results
     
