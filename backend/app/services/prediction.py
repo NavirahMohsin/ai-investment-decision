@@ -156,17 +156,22 @@ class PredictionService:
         market_data = list(reversed(market_data))
         
         # Convert to DataFrame - format expected by FeatureEngineer
-        data = pd.DataFrame([
-            {
-                "trading_date": row.trading_date,
-                "open": float(row.open),
-                "high": float(row.high),
-                "low": float(row.low),
-                "close": float(row.close),
-                "volume": row.volume,
-            }
-            for row in market_data
-        ])
+        try:
+            data = pd.DataFrame([
+                {
+                    "trading_date": row.trading_date,
+                    "open": float(row.open) if row.open is not None else 0.0,
+                    "high": float(row.high) if row.high is not None else 0.0,
+                    "low": float(row.low) if row.low is not None else 0.0,
+                    "close": float(row.close) if row.close is not None else 0.0,
+                    "volume": int(row.volume) if row.volume is not None else 0,
+                }
+                for row in market_data
+            ])
+        except (TypeError, ValueError) as e:
+            logger.error(f"Data conversion error for {request.symbol}: {e}")
+            logger.error(f"First row data: open={type(market_data[0].open)}, high={type(market_data[0].high)}, low={type(market_data[0].low)}, close={type(market_data[0].close)}")
+            raise ValueError(f"Market data conversion failed: {e}")
         
         # Generate features
         try:
@@ -181,8 +186,12 @@ class PredictionService:
         if latest_features.empty:
             raise ValueError(f"Insufficient data for predictions: {request.symbol}")
         
+        # Drop non-numeric columns (like trading_date) before making prediction
+        feature_cols = latest_features.select_dtypes(include=['number']).columns.tolist()
+        latest_features_numeric = latest_features[feature_cols]
+        
         # Get feature values and order as expected by model
-        feature_values = latest_features.values
+        feature_values = latest_features_numeric.values
         
         # Make prediction
         try:
@@ -201,7 +210,7 @@ class PredictionService:
         # Prepare features dict if requested
         features_dict = None
         if request.include_features:
-            feature_names = latest_features.columns.tolist()
+            feature_names = latest_features_numeric.columns.tolist()
             features_dict = dict(zip(feature_names, feature_values[0]))
         
         # Create response
