@@ -1,8 +1,8 @@
 """
 LLM Service - Handles integration with Gemini and Groq APIs.
 
-Primary: Gemini 2.5 Flash (via Google AI Studio) - 1M token context window
-Fallback: Llama 3.3 70B (via Groq) - High-speed backup
+Primary: Gemini 2.0 Flash (via Google AI Studio) - 1M token context window
+Fallback: OpenAI GPT OSS 120B (via Groq) - High-speed backup
 """
 
 import json
@@ -63,6 +63,8 @@ class LLMService:
         
         if self.groq_available:
             self.groq_client = GroqClient(api_key=self.config.groq_api_key)
+        
+        logger.info(f"LLMService initialized - Gemini: {self.gemini_available}, Groq: {self.groq_available}")
 
     def _is_provider_available(self, provider: LLMProvider) -> bool:
         """Check if a provider is available."""
@@ -82,6 +84,11 @@ class LLMService:
     ) -> tuple[str, Optional[dict]]:
         """Call Gemini API with structured outputs support."""
         try:
+            if not self.config.gemini_api_key:
+                raise RuntimeError("Gemini API key not configured")
+            
+            logger.info(f"Calling Gemini with model: gemini-2.0-flash")
+            
             # Build request with system instruction
             messages = []
             if system_prompt:
@@ -119,7 +126,7 @@ class LLMService:
             return text_content, usage
 
         except Exception as e:
-            logger.error(f"Gemini API call failed: {e}")
+            logger.error(f"Gemini API call failed: {e}", exc_info=True)
             raise
 
     def _call_groq(
@@ -154,7 +161,7 @@ class LLMService:
                 }
 
             response = self.groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
@@ -240,6 +247,8 @@ class LLMService:
                 )
                 if not fallback_to_groq:
                     raise
+        else:
+            logger.warning(f"Primary provider {primary_provider.value} not available. Gemini key: {bool(self.config.gemini_api_key)}, Groq key: {bool(self.config.groq_api_key)}")
 
         # Fallback to secondary provider
         if fallback_to_groq and self._is_provider_available(fallback_provider):
