@@ -13,6 +13,7 @@ import { IndicatorControls, type IndicatorVisibility } from "@/components/stocks
 import { FundamentalsPanel } from "@/components/stocks/fundamentals-panel";
 import { CompanyProfileCard } from "@/components/stocks/company-profile-card";
 import { CompanyNewsPanel } from "@/components/news/company-news-panel";
+import { UnifiedStockIntelligence } from "@/components/stocks/unified-stock-intelligence";
 
 const ranges = [
   { label: "1M", days: 31 },
@@ -270,6 +271,7 @@ export function StockDetail({ symbol }: { symbol: string }) {
             </CardContent>
           </Card>
           <CompanyProfileCard symbol={symbol} />
+          <UnifiedStockIntelligence symbol={symbol} companyName={company?.name} />
           <FundamentalsPanel symbol={symbol} />
           {company && <CompanyNewsPanel companyId={company.id} companySymbol={symbol} />}
           <div className="flex justify-end">

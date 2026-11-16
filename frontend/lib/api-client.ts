@@ -68,6 +68,51 @@ export interface AgentExecutionResponse {
   llm_provider_used?: string | null;
 }
 
+export interface ModelMetadata {
+  model_id: string;
+  model_type: string;
+  version: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  accuracy?: number | null;
+  f1_score?: number | null;
+  roc_auc?: number | null;
+  feature_count: number;
+  classes: string[];
+  description?: string | null;
+}
+
+export interface PredictionResult {
+  symbol: string;
+  predicted_class: 'Positive' | 'Negative' | 'Neutral' | string;
+  confidence: number;
+  probabilities: Record<string, number>;
+  horizon_days: number;
+  as_of_date: string;
+  model_id: string;
+  prediction_id: string;
+  timestamp: string;
+  current_price?: number | null;
+  features?: Record<string, number> | null;
+}
+
+export interface BatchPredictionResponse {
+  predictions: PredictionResult[];
+  summary: {
+    total_predictions: number;
+    positive_count: number;
+    negative_count: number;
+    neutral_count: number;
+    average_confidence: number;
+    min_confidence: number;
+    max_confidence: number;
+  };
+  model_id: string;
+  horizon_days: number;
+  timestamp: string;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -163,7 +208,7 @@ class ApiClient {
     score: number,
     factors: Record<string, any>
   ) {
-    return this.fetch('/assistant/explain/fundamental-score', {
+    return this.fetch<{ explanation: string; [key: string]: any }>('/assistant/explain/fundamental-score', {
       method: 'POST',
       body: JSON.stringify({
         ticker,
@@ -179,7 +224,7 @@ class ApiClient {
     signal: string,
     indicators: Record<string, any>
   ) {
-    return this.fetch('/assistant/explain/technical-signal', {
+    return this.fetch<{ explanation: string; [key: string]: any }>('/assistant/explain/technical-signal', {
       method: 'POST',
       body: JSON.stringify({
         ticker,
@@ -209,7 +254,7 @@ class ApiClient {
     currentPrice: number,
     predictionPrice: number
   ) {
-    return this.fetch('/explain/ml-prediction', {
+    return this.fetch<{ explanation: string; [key: string]: any }>('/explain/ml-prediction', {
       method: 'POST',
       body: JSON.stringify({
         ticker,
@@ -227,7 +272,7 @@ class ApiClient {
     sentimentCategory: string,
     themes?: Record<string, any>
   ) {
-    return this.fetch('/explain/news-sentiment', {
+    return this.fetch<{ explanation: string; [key: string]: any }>('/explain/news-sentiment', {
       method: 'POST',
       body: JSON.stringify({
         ticker,
@@ -281,6 +326,51 @@ class ApiClient {
         tickers: tickers && tickers.length > 0 ? tickers : undefined,
         scope: scope || undefined,
         selected_agents: selectedAgents && selectedAgents.length > 0 ? selectedAgents : undefined,
+      }),
+    });
+  }
+
+  // ML Models & Prediction endpoints
+  async listPredictionModels() {
+    return this.fetch<{ models: ModelMetadata[]; total_count: number }>('/predictions/models');
+  }
+
+  async getPredictionModelInfo(modelId: string, version: string = 'latest') {
+    return this.fetch<ModelMetadata>(`/predictions/models/${encodeURIComponent(modelId)}?version=${encodeURIComponent(version)}`);
+  }
+
+  async predictStock(
+    symbol: string,
+    modelId?: string,
+    version: string = 'latest',
+    horizonDays: number = 1,
+    includeFeatures: boolean = true
+  ) {
+    return this.fetch<PredictionResult>('/predictions/predict', {
+      method: 'POST',
+      body: JSON.stringify({
+        symbol,
+        model_id: modelId || 'latest',
+        model_version: version,
+        horizon_days: horizonDays,
+        include_features: includeFeatures,
+      }),
+    });
+  }
+
+  async predictBatch(
+    symbols: string[],
+    modelId?: string,
+    version: string = 'latest',
+    horizonDays: number = 1
+  ) {
+    return this.fetch<BatchPredictionResponse>('/predictions/predict/batch', {
+      method: 'POST',
+      body: JSON.stringify({
+        symbols,
+        model_id: modelId || 'latest',
+        model_version: version,
+        horizon_days: horizonDays,
       }),
     });
   }

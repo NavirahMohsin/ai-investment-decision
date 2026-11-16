@@ -24,10 +24,10 @@ export function useMlPredictionExplanation() {
   const explain = useCallback(
     async (
       ticker: string,
-      direction: string,
-      confidence: number,
-      currentPrice: number,
-      predictionPrice: number
+      direction: string = 'Positive',
+      confidence: number = 0.75,
+      currentPrice: number = 100,
+      predictionPrice: number = 105
     ) => {
       setState({ loading: true, error: null, explanation: null });
       const response = await apiClient.explainMlPrediction(
@@ -68,7 +68,7 @@ export function useTechnicalSignalExplanation() {
     explanation: null,
   });
 
-  const explain = useCallback(async (ticker: string, signal: string, indicators: Record<string, any>) => {
+  const explain = useCallback(async (ticker: string, signal: string = 'Bullish', indicators: Record<string, any> = { rsi: 55 }) => {
     setState({ loading: true, error: null, explanation: null });
     const response = await apiClient.explainTechnicalSignal(ticker, signal, indicators);
 
@@ -101,7 +101,7 @@ export function useFundamentalScoreExplanation() {
   });
 
   const explain = useCallback(
-    async (ticker: string, score: number, factors: Record<string, any>) => {
+    async (ticker: string, score: number = 75, factors: Record<string, any> = { profitability: 'high' }) => {
       setState({ loading: true, error: null, explanation: null });
       const response = await apiClient.explainFundamentalScore(ticker, score, factors);
 
@@ -138,9 +138,9 @@ export function useNewsSentimentExplanation() {
   const explain = useCallback(
     async (
       ticker: string,
-      sentimentScore: number,
-      sentimentCategory: string,
-      themes?: Record<string, any>
+      sentimentScore: number = 0.6,
+      sentimentCategory: string = 'Positive',
+      themes: Record<string, any> = {}
     ) => {
       setState({ loading: true, error: null, explanation: null });
       const response = await apiClient.explainNewsSentiment(

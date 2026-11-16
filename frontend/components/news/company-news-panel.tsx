@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { NewsArticleCard } from './news-article-card';
@@ -53,6 +53,34 @@ export function CompanyNewsPanel({
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSentiment, setSelectedSentiment] = useState<string | null>(null);
 
+  const fetchData = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      // Fetch current sentiment
+      const sentimentRes = await fetch(
+        `${API_URL}/api/v1/news/company/${companyId}/sentiment?days=30`,
+        { cache: 'no-store' }
+      );
+      if (sentimentRes.ok) {
+        setSentiment(await sentimentRes.json());
+      }
+
+      // Build article query
+      let articleUrl = `${API_URL}/api/v1/news/company/${companyId}/articles?limit=${maxItems}`;
+      if (selectedCategory) articleUrl += `&category=${selectedCategory}`;
+      if (selectedSentiment) articleUrl += `&sentiment=${selectedSentiment}`;
+
+      const articlesRes = await fetch(articleUrl, { cache: 'no-store' });
+      if (articlesRes.ok) {
+        setArticles(await articlesRes.json());
+      }
+    } catch (err) {
+      console.error('Failed to fetch news data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId, selectedCategory, selectedSentiment, maxItems]);
+
   const handleRefreshNews = async () => {
     setRefreshing(true);
     try {
@@ -75,36 +103,8 @@ export function CompanyNewsPanel({
   };
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // Fetch current sentiment
-        const sentimentRes = await fetch(
-          `${API_URL}/api/v1/news/company/${companyId}/sentiment?days=30`,
-          { cache: 'no-store' }
-        );
-        if (sentimentRes.ok) {
-          setSentiment(await sentimentRes.json());
-        }
-
-        // Build article query
-        let articleUrl = `${API_URL}/api/v1/news/company/${companyId}/articles?limit=${maxItems}`;
-        if (selectedCategory) articleUrl += `&category=${selectedCategory}`;
-        if (selectedSentiment) articleUrl += `&sentiment=${selectedSentiment}`;
-
-        const articlesRes = await fetch(articleUrl, { cache: 'no-store' });
-        if (articlesRes.ok) {
-          setArticles(await articlesRes.json());
-        }
-      } catch (err) {
-        console.error('Failed to fetch news data:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchData();
-  }, [companyId, selectedCategory, selectedSentiment, maxItems]);
+  }, [fetchData]);
 
   if (loading) {
     return (

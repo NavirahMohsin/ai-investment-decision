@@ -154,12 +154,12 @@ export default function ExplanationsPage() {
                 {mlPrediction.error && (
                   <div className="text-red-400 mb-4">{mlPrediction.error}</div>
                 )}
-                {mlPrediction.data?.explanation && (
+                {mlPrediction.explanation && (
                   <div className="prose prose-invert max-w-none text-slate-300">
-                    <ReactMarkdown>{mlPrediction.data.explanation}</ReactMarkdown>
+                    <ReactMarkdown>{mlPrediction.explanation}</ReactMarkdown>
                   </div>
                 )}
-                {!mlPrediction.data && !mlPrediction.error && !mlPrediction.loading && (
+                {!mlPrediction.explanation && !mlPrediction.error && !mlPrediction.loading && (
                   <div className="text-slate-500 text-center py-8">
                     Enter a ticker and click "ML Prediction" to get started
                   </div>
@@ -172,12 +172,12 @@ export default function ExplanationsPage() {
                 {technicalSignal.error && (
                   <div className="text-red-400 mb-4">{technicalSignal.error}</div>
                 )}
-                {technicalSignal.data?.explanation && (
+                {technicalSignal.explanation && (
                   <div className="prose prose-invert max-w-none text-slate-300">
-                    <ReactMarkdown>{technicalSignal.data.explanation}</ReactMarkdown>
+                    <ReactMarkdown>{technicalSignal.explanation}</ReactMarkdown>
                   </div>
                 )}
-                {!technicalSignal.data && !technicalSignal.error && !technicalSignal.loading && (
+                {!technicalSignal.explanation && !technicalSignal.error && !technicalSignal.loading && (
                   <div className="text-slate-500 text-center py-8">
                     Enter a ticker and click "Technical Signal" to get started
                   </div>
@@ -190,12 +190,12 @@ export default function ExplanationsPage() {
                 {fundamentalScore.error && (
                   <div className="text-red-400 mb-4">{fundamentalScore.error}</div>
                 )}
-                {fundamentalScore.data?.explanation && (
+                {fundamentalScore.explanation && (
                   <div className="prose prose-invert max-w-none text-slate-300">
-                    <ReactMarkdown>{fundamentalScore.data.explanation}</ReactMarkdown>
+                    <ReactMarkdown>{fundamentalScore.explanation}</ReactMarkdown>
                   </div>
                 )}
-                {!fundamentalScore.data && !fundamentalScore.error && !fundamentalScore.loading && (
+                {!fundamentalScore.explanation && !fundamentalScore.error && !fundamentalScore.loading && (
                   <div className="text-slate-500 text-center py-8">
                     Enter a ticker and click "Fundamental Score" to get started
                   </div>
@@ -208,12 +208,12 @@ export default function ExplanationsPage() {
                 {newsSentiment.error && (
                   <div className="text-red-400 mb-4">{newsSentiment.error}</div>
                 )}
-                {newsSentiment.data?.explanation && (
+                {newsSentiment.explanation && (
                   <div className="prose prose-invert max-w-none text-slate-300">
-                    <ReactMarkdown>{newsSentiment.data.explanation}</ReactMarkdown>
+                    <ReactMarkdown>{newsSentiment.explanation}</ReactMarkdown>
                   </div>
                 )}
-                {!newsSentiment.data && !newsSentiment.error && !newsSentiment.loading && (
+                {!newsSentiment.explanation && !newsSentiment.error && !newsSentiment.loading && (
                   <div className="text-slate-500 text-center py-8">
                     Enter a ticker and click "News Sentiment" to get started
                   </div>
