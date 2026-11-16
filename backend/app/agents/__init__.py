@@ -18,7 +18,13 @@ from app.agents.state import (
     GraphState,
 )
 from app.agents.registry import registry
-from app.agents.graph import compile_graph, create_initial_state, build_graph
+from app.agents.graph import (
+    compile_graph,
+    create_initial_state,
+    build_graph,
+    _validate_tickers_node,
+    _router_node,
+)
 
 __all__ = [
     "AgentName",
@@ -30,4 +36,6 @@ __all__ = [
     "compile_graph",
     "create_initial_state",
     "build_graph",
+    "_validate_tickers_node",
+    "_router_node",
 ]

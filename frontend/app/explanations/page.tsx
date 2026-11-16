@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  useMLPredictionExplanation,
+  useMlPredictionExplanation,
   useTechnicalSignalExplanation,
   useFundamentalScoreExplanation,
   useNewsSentimentExplanation,
@@ -13,7 +13,7 @@ export default function ExplanationsPage() {
   const [ticker, setTicker] = useState('');
   const [activeTab, setActiveTab] = useState<'ml' | 'signal' | 'score' | 'sentiment'>('ml');
 
-  const mlPrediction = useMLPredictionExplanation();
+  const mlPrediction = useMlPredictionExplanation();
   const technicalSignal = useTechnicalSignalExplanation();
   const fundamentalScore = useFundamentalScoreExplanation();
   const newsSentiment = useNewsSentimentExplanation();

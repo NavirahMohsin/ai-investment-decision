@@ -4,5 +4,14 @@ from app.api.routes.sectors import router as sectors_router
 from app.api.routes.predictions import router as predictions_router
 from app.api.routes.news_intelligence import router as news_intelligence_router
 from app.api.routes.assistant import assistant_router
+from app.api.routes.agents import agents_router
 
-__all__ = ["v1_router", "fundamentals_router", "sectors_router", "predictions_router", "news_intelligence_router", "assistant_router"]
+__all__ = [
+    "v1_router",
+    "fundamentals_router",
+    "sectors_router",
+    "predictions_router",
+    "news_intelligence_router",
+    "assistant_router",
+    "agents_router",
+]

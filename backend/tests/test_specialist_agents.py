@@ -314,6 +314,7 @@ class TestNewsAnalystAgent:
         match = NewsArticleCompany(
             article_id=art.id,
             company_id=comp.id,
+            match_method="symbol",
             match_confidence=Decimal("0.99"),
         )
         db_session.add(match)

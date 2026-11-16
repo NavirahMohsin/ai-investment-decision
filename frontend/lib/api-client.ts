@@ -11,6 +11,63 @@ interface ApiResponse<T> {
   error?: string;
 }
 
+export interface AgentMetadata {
+  name: string;
+  display_name: string;
+  description: string;
+  scopes: string[];
+  requires_db: boolean;
+  requires_llm: boolean;
+  is_available: boolean;
+}
+
+export interface AgentsHealthData {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  orchestration_available: boolean;
+  registered_agents: string[];
+  total_agents: number;
+  gemini_available: boolean;
+  groq_available: boolean;
+  active_providers: string[];
+  message: string;
+  timestamp: string;
+}
+
+export interface AgentResultDetail {
+  agent_name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  summary: string;
+  key_findings: string[];
+  supporting_metrics: Record<string, any>;
+  evidence_sources: string[];
+  data_timestamps: Record<string, string>;
+  confidence: string;
+  missing_information: string[];
+  warnings: string[];
+  started_at?: string;
+  completed_at?: string;
+  error_message?: string;
+}
+
+export interface AgentExecutionResponse {
+  run_id: string;
+  status: 'completed' | 'partial_failure' | 'failed';
+  user_request: string;
+  tickers: string[];
+  scope: string;
+  selected_agents: string[];
+  execution_statuses: Record<string, string>;
+  final_report?: string | null;
+  agent_results: Record<string, AgentResultDetail>;
+  evidence_sources: string[];
+  warnings: string[];
+  errors: string[];
+  started_at: string;
+  completed_at?: string | null;
+  execution_time_seconds?: number | null;
+  llm_provider_used?: string | null;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -183,6 +240,49 @@ class ApiClient {
 
   async checkExplanationHealth() {
     return this.fetch('/explain/health');
+  }
+
+  // Multi-Agent endpoints
+  async checkAgentsHealth() {
+    return this.fetch<AgentsHealthData>('/agents/health');
+  }
+
+  async listAgents() {
+    return this.fetch<{ agents: AgentMetadata[]; total: number }>('/agents');
+  }
+
+  async runAgentResearch(
+    ticker: string,
+    question?: string,
+    scope: string = 'standard',
+    selectedAgents?: string[]
+  ) {
+    return this.fetch<AgentExecutionResponse>('/agents/research', {
+      method: 'POST',
+      body: JSON.stringify({
+        ticker,
+        question: question || undefined,
+        scope,
+        selected_agents: selectedAgents && selectedAgents.length > 0 ? selectedAgents : undefined,
+      }),
+    });
+  }
+
+  async runAgentAnalyze(
+    request: string,
+    tickers?: string[],
+    scope?: string,
+    selectedAgents?: string[]
+  ) {
+    return this.fetch<AgentExecutionResponse>('/agents/analyze', {
+      method: 'POST',
+      body: JSON.stringify({
+        request,
+        tickers: tickers && tickers.length > 0 ? tickers : undefined,
+        scope: scope || undefined,
+        selected_agents: selectedAgents && selectedAgents.length > 0 ? selectedAgents : undefined,
+      }),
+    });
   }
 }
 

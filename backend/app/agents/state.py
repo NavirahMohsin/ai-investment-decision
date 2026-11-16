@@ -141,6 +141,10 @@ class GraphState(TypedDict, total=False):
     scope: str
     selected_agents: list[str]
 
+    # Ticker validation (populated by validate_tickers node)
+    validated_tickers: list[str]
+    unknown_tickers: list[str]
+
     # Per-agent results (plain dicts - JSON-safe)
     agent_results: dict[str, dict[str, Any]]
     agent_statuses: dict[str, str]
