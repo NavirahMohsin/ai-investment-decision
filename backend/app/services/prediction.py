@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, date, timezone, timedelta
+from decimal import Decimal
 from typing import Optional, Any
 import logging
 import uuid
@@ -27,7 +28,7 @@ import pandas as pd
 import numpy as np
 from sqlalchemy.orm import Session
 
-from app.db.models import Company, DailyMarketData
+from app.db.models import Company, DailyMarketData, Prediction, MLModel
 from app.ml.feature_engineering import FeatureConfig, DatasetGenerator
 from app.ml.model_server import ModelServer, PredictionResult
 from app.services.indicators import IndicatorParameters, calculate_indicators
@@ -228,9 +229,85 @@ class PredictionService:
             current_price=current_price,
         )
         
+        # Persist prediction in database for audit and tracking
+        try:
+            ml_model = db.query(MLModel).filter(
+                MLModel.model_id == request.model_id
+            ).first()
+
+            pred_row = Prediction(
+                prediction_id=response.prediction_id,
+                company_id=company.id,
+                model_id=ml_model.id if ml_model else None,
+                horizon_days=request.horizon_days,
+                predicted_class=result.predicted_class,
+                confidence=round(Decimal(str(result.confidence)), 4),
+                probabilities=result.class_probabilities,
+                as_of_date=response.as_of_date,
+                current_price=Decimal(str(round(current_price, 4))) if current_price is not None else None,
+                prediction_date=response.timestamp,
+            )
+            db.add(pred_row)
+            db.commit()
+            logger.info(f"Persisted prediction {response.prediction_id} for {request.symbol}")
+        except Exception as p_err:
+            db.rollback()
+            logger.warning(f"Failed to persist prediction audit log: {p_err}")
+
         logger.info(f"Prediction for {request.symbol}: {result.predicted_class} ({result.confidence:.2%})")
         
         return response
+
+    def get_prediction_history(
+        self,
+        db: Session,
+        symbol: Optional[str] = None,
+        model_id: Optional[str] = None,
+        horizon_days: Optional[int] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Retrieve paginated prediction history with optional filters."""
+        query = (
+            db.query(Prediction, Company.symbol, MLModel.model_id)
+            .join(Company, Prediction.company_id == Company.id)
+            .outerjoin(MLModel, Prediction.model_id == MLModel.id)
+        )
+
+        if symbol:
+            query = query.filter(Company.symbol == symbol.strip().upper())
+        if horizon_days:
+            query = query.filter(Prediction.horizon_days == horizon_days)
+        if model_id:
+            query = query.filter(MLModel.model_id == model_id)
+
+        total = query.count()
+        rows = (
+            query.order_by(Prediction.prediction_date.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        history_items = []
+        for pred, sym, model_key in rows:
+            history_items.append({
+                "id": pred.id,
+                "prediction_id": pred.prediction_id,
+                "company_id": pred.company_id,
+                "symbol": sym,
+                "model_id": model_key or pred.model_id,
+                "horizon_days": pred.horizon_days,
+                "predicted_class": pred.predicted_class,
+                "confidence": float(pred.confidence),
+                "probabilities": pred.probabilities,
+                "as_of_date": pred.as_of_date.isoformat(),
+                "current_price": float(pred.current_price) if pred.current_price is not None else None,
+                "prediction_date": pred.prediction_date.isoformat(),
+                "created_at": pred.created_at.isoformat(),
+            })
+
+        return history_items, total
     
     def predict_for_watchlist(
         self,

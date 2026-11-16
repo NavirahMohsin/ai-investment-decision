@@ -30,21 +30,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { fetchCompanies, Company } from '@/lib/api';
-import apiClient from '@/lib/api-client';
+import apiClient, { SavedReportSummary, SavedReportDetail, ResearchReportResult } from '@/lib/api-client';
 
 const POPULAR_TICKERS = ['INFY', 'TCS', 'RELIANCE', 'HDFCBANK', 'ICICIBANK', 'WIPRO'];
-
-interface SavedReport {
-  id: string;
-  ticker: string;
-  companyName: string;
-  reportType: string;
-  timestamp: string;
-  overview?: string;
-  financialAnalysis?: string;
-  swot?: string;
-  report?: string;
-}
 
 export default function ResearchPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -71,23 +59,32 @@ export default function ResearchPage() {
   const [reportData, setReportData] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Saved reports history (persisted in localStorage)
-  const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
+  // Saved reports history from backend
+  const [savedReports, setSavedReports] = useState<SavedReportSummary[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Load companies & local history on mount
+  // Fetch saved reports from backend
+  const fetchBackendReports = async () => {
+    setLoadingHistory(true);
+    try {
+      const res = await apiClient.listSavedReports();
+      if (res.status === 'success' && res.data) {
+        setSavedReports(res.data.reports || []);
+      }
+    } catch (err) {
+      console.warn('Could not load reports from backend:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  // Load companies & backend history on mount
   useEffect(() => {
     fetchCompanies()
       .then(setCompanies)
       .catch((err) => console.warn('Could not load companies:', err));
 
-    try {
-      const stored = localStorage.getItem('arthai_saved_research');
-      if (stored) {
-        setSavedReports(JSON.parse(stored));
-      }
-    } catch (e) {
-      console.warn('Could not load saved research history:', e);
-    }
+    fetchBackendReports();
   }, []);
 
   // Filter companies for autocomplete
@@ -103,59 +100,53 @@ export default function ResearchPage() {
     return companies.find((c) => c.symbol.toUpperCase() === ticker.toUpperCase());
   }, [companies, ticker]);
 
-  // Save current research to history
-  const saveCurrentResearch = (
-    sym: string,
-    over?: string | null,
-    fin?: string | null,
-    sw?: string | null,
-    rep?: string | null
-  ) => {
-    if (!sym) return;
-    const compName = selectedCompany?.name || sym;
-    const newEntry: SavedReport = {
-      id: `${sym}-${Date.now()}`,
-      ticker: sym,
-      companyName: compName,
-      reportType,
-      timestamp: new Date().toISOString(),
-      overview: over || overviewData || undefined,
-      financialAnalysis: fin || financialsData || undefined,
-      swot: sw || swotData || undefined,
-      report: rep || reportData || undefined,
-    };
-
-    setSavedReports((prev) => {
-      const updated = [newEntry, ...prev.filter((r) => r.ticker !== sym)].slice(0, 20);
-      try {
-        localStorage.setItem('arthai_saved_research', JSON.stringify(updated));
-      } catch (e) {
-        console.warn('Failed to save to localStorage:', e);
-      }
-      return updated;
-    });
-  };
-
-  const deleteSavedReport = (id: string, e: React.MouseEvent) => {
+  const deleteSavedReport = async (reportId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setSavedReports((prev) => {
-      const updated = prev.filter((r) => r.id !== id);
-      try {
-        localStorage.setItem('arthai_saved_research', JSON.stringify(updated));
-      } catch (err) {
-        console.warn('Failed to delete from localStorage:', err);
+    try {
+      const res = await apiClient.deleteSavedReport(reportId);
+      if (res.status === 'success') {
+        setSavedReports((prev) => prev.filter((r) => r.report_id !== reportId));
+      } else {
+        setErrorMsg(res.error || 'Failed to delete report.');
       }
-      return updated;
-    });
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error deleting report.');
+    }
   };
 
-  const loadSavedReport = (item: SavedReport) => {
+  const loadSavedReport = async (item: SavedReportSummary) => {
     setTicker(item.ticker);
-    setOverviewData(item.overview || null);
-    setFinancialsData(item.financialAnalysis || null);
-    setSwotData(item.swot || null);
-    setReportData(item.report || null);
-    setActiveTab(item.report ? 'report' : item.overview ? 'overview' : 'financials');
+    setErrorMsg(null);
+    try {
+      const res = await apiClient.getSavedReport(item.report_id);
+      if (res.status === 'success' && res.data) {
+        const d = res.data;
+        setReportData(d.content);
+        if (d.structured_sections) {
+          if (d.structured_sections.executive_summary) setOverviewData(d.structured_sections.executive_summary);
+          if (d.structured_sections.financial_performance) setFinancialsData(d.structured_sections.financial_performance);
+          if (d.structured_sections.swot) setSwotData(d.structured_sections.swot);
+        }
+        setActiveTab('report');
+      } else {
+        setErrorMsg(res.error || 'Failed to retrieve full report details.');
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error loading saved report.');
+    }
+  };
+
+  const handleDownloadReport = () => {
+    if (!reportData) return;
+    const blob = new Blob([reportData], { type: 'text/markdown;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${ticker || 'ArthAI'}_Research_Report.md`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   // Generation Handlers
@@ -169,7 +160,6 @@ export default function ResearchPage() {
       if (res.status === 'success' && res.data) {
         const text = (res.data as any).overview || JSON.stringify(res.data);
         setOverviewData(text);
-        saveCurrentResearch(sym, text, null, null, null);
       } else {
         setErrorMsg(res.error || 'Failed to generate company overview.');
       }
@@ -190,7 +180,6 @@ export default function ResearchPage() {
       if (res.status === 'success' && res.data) {
         const text = (res.data as any).analysis || JSON.stringify(res.data);
         setFinancialsData(text);
-        saveCurrentResearch(sym, null, text, null, null);
       } else {
         setErrorMsg(res.error || 'Failed to analyze financial performance.');
       }
@@ -211,7 +200,6 @@ export default function ResearchPage() {
       if (res.status === 'success' && res.data) {
         const text = (res.data as any).swot || JSON.stringify(res.data);
         setSwotData(text);
-        saveCurrentResearch(sym, null, null, text, null);
       } else {
         setErrorMsg(res.error || 'Failed to generate SWOT analysis.');
       }
@@ -228,11 +216,17 @@ export default function ResearchPage() {
     setErrorMsg(null);
     setLoadingReport(true);
     try {
-      const res = await apiClient.generateResearchReport(sym, reportType);
+      const res = await apiClient.generateResearchReport(sym, reportType, true);
       if (res.status === 'success' && res.data) {
-        const text = (res.data as any).report || JSON.stringify(res.data);
+        const text = res.data.report;
         setReportData(text);
-        saveCurrentResearch(sym, null, null, null, text);
+        if (res.data.structured_sections) {
+          if (res.data.structured_sections.executive_summary) setOverviewData(res.data.structured_sections.executive_summary);
+          if (res.data.structured_sections.financial_performance) setFinancialsData(res.data.structured_sections.financial_performance);
+          if (res.data.structured_sections.swot) setSwotData(res.data.structured_sections.swot);
+        }
+        // Refresh saved reports from backend
+        fetchBackendReports();
       } else {
         setErrorMsg(res.error || 'Failed to generate comprehensive research report.');
       }
@@ -250,12 +244,7 @@ export default function ResearchPage() {
     setErrorMsg(null);
     setLoadingAll(true);
     try {
-      await Promise.allSettled([
-        handleGenerateOverview(),
-        handleGenerateFinancials(),
-        handleGenerateSwot(),
-        handleGenerateReport(),
-      ]);
+      await handleGenerateReport();
       setActiveTab('report');
     } finally {
       setLoadingAll(false);
@@ -669,6 +658,21 @@ export default function ResearchPage() {
                   </div>
                 ) : reportData ? (
                   <div className="space-y-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-border/40">
+                      <div className="text-xs text-muted-foreground flex items-center gap-2">
+                        <CheckCircle2 className="size-3.5 text-emerald-400" />
+                        <span>Verified Multi-Domain Research Report</span>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        onClick={handleDownloadReport}
+                        className="gap-1.5 text-xs h-7 border-border hover:bg-muted"
+                      >
+                        <Download className="size-3" />
+                        Export Markdown (.md)
+                      </Button>
+                    </div>
                     <div className="prose prose-invert prose-slate max-w-none prose-headings:text-foreground prose-h1:text-xl prose-h2:text-lg prose-p:text-muted-foreground text-sm">
                       <ReactMarkdown>{reportData}</ReactMarkdown>
                     </div>
@@ -687,44 +691,69 @@ export default function ResearchPage() {
             {activeTab === 'history' && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-border/40 text-xs">
-                  <span className="font-semibold text-foreground">Previously Saved Dossiers</span>
-                  <span className="text-muted-foreground">{savedReports.length} stored locally</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-foreground">Database-Backed Research Archives</span>
+                    <Badge variant="outline" className="text-[10px]">PostgreSQL / SQLite</Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={fetchBackendReports}
+                      disabled={loadingHistory}
+                      className="h-6 text-xs gap-1"
+                    >
+                      <RefreshCw className={`size-3 ${loadingHistory ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </Button>
+                    <span className="text-muted-foreground">{savedReports.length} stored</span>
+                  </div>
                 </div>
 
-                {savedReports.length > 0 ? (
+                {loadingHistory ? (
+                  <div className="py-12 text-center text-xs text-muted-foreground space-y-2">
+                    <RefreshCw className="size-5 animate-spin mx-auto text-primary" />
+                    <p>Loading reports from database...</p>
+                  </div>
+                ) : savedReports.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
                     {savedReports.map((item) => (
                       <div
-                        key={item.id}
+                        key={item.report_id}
                         onClick={() => loadSavedReport(item)}
                         className="p-3.5 rounded-lg border border-border/80 bg-card hover:bg-muted/30 transition-all cursor-pointer flex items-center justify-between gap-3 text-xs"
                       >
-                        <div>
+                        <div className="space-y-1 overflow-hidden">
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-bold text-primary text-sm">{item.ticker}</span>
-                            <span className="text-muted-foreground truncate font-medium">{item.companyName}</span>
+                            <span className="text-muted-foreground truncate font-medium max-w-[180px]">{item.company_name || item.ticker}</span>
                           </div>
-                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-1">
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                             <span>
-                              {new Date(item.timestamp).toLocaleDateString('en-IN', {
+                              {new Date(item.generated_at).toLocaleDateString('en-IN', {
                                 day: '2-digit',
                                 month: 'short',
                                 year: 'numeric',
                               })}
                             </span>
                             <span>•</span>
-                            <span className="capitalize">{item.reportType}</span>
+                            <span className="capitalize">{item.report_type}</span>
                           </div>
+                          {item.content_preview && (
+                            <p className="text-[11px] text-muted-foreground/80 line-clamp-1 font-sans">
+                              {item.content_preview}
+                            </p>
+                          )}
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <Button variant="ghost" size="xs" className="h-7 text-xs">
                             Load <ChevronRight className="size-3 ml-1" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon-xs"
-                            onClick={(e) => deleteSavedReport(item.id, e)}
+                            onClick={(e) => deleteSavedReport(item.report_id, e)}
                             className="text-muted-foreground hover:text-rose-400"
                           >
                             <Trash2 className="size-3.5" />
@@ -734,8 +763,10 @@ export default function ResearchPage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-12 text-muted-foreground text-xs">
-                    No research reports saved yet. When you generate reports, they will be saved here automatically.
+                  <div className="text-center py-12 text-muted-foreground text-xs space-y-1">
+                    <History className="size-6 mx-auto text-muted-foreground/40 mb-1" />
+                    <p className="font-medium text-foreground">No reports saved in database yet</p>
+                    <p>Generate a report and it will be persisted permanently to the backend repository.</p>
                   </div>
                 )}
               </div>

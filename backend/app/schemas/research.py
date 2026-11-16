@@ -71,38 +71,71 @@ class ResearchReportRequest(BaseModel):
     ticker: str = Field(..., description="Stock ticker", min_length=1, max_length=10)
     report_type: str = Field(
         default="comprehensive",
-        description="Report type: summary or comprehensive"
+        description="Report type: summary, comprehensive, financial, swot"
     )
+    save_to_db: bool = Field(default=True, description="Whether to persist report to DB")
+
+
+class SaveReportRequest(BaseModel):
+    """Request to explicitly persist a research report."""
+    ticker: str = Field(..., description="Stock ticker", min_length=1, max_length=10)
+    company_name: Optional[str] = Field(None, description="Company name")
+    report_type: str = Field(default="comprehensive", description="Report type")
+    content: str = Field(..., description="Report content markdown")
+    structured_sections: Optional[Dict[str, Any]] = Field(None, description="Structured sections")
+    sources: Optional[List[Dict[str, Any]]] = Field(None, description="Evidence sources")
 
 
 class ResearchReportResponse(BaseModel):
     """Response with research report."""
     report: str = Field(..., description="Full research report")
     ticker: str = Field(..., description="Stock ticker")
-    report_id: Optional[int] = Field(None, description="Saved report ID if stored")
+    company_name: Optional[str] = Field(None, description="Company name")
+    report_type: str = Field(default="comprehensive", description="Report type")
+    report_id: Optional[str] = Field(None, description="Saved report ID if stored")
+    structured_sections: Optional[Dict[str, Any]] = Field(None, description="Structured sections")
+    sources: Optional[List[Dict[str, Any]]] = Field(None, description="Sources and references")
+    generated_at: Optional[str] = Field(None, description="Generation timestamp")
 
 
 class SavedReportResponse(BaseModel):
-    """Response for saved report."""
+    """Response for saved report summary."""
     id: int = Field(..., description="Report ID")
+    report_id: str = Field(..., description="Report unique identifier")
     ticker: str = Field(..., description="Stock ticker")
+    company_name: Optional[str] = Field(None, description="Company name")
     report_type: str = Field(..., description="Report type")
+    content_preview: Optional[str] = Field(None, description="Content snippet")
     generated_at: str = Field(..., description="Generation timestamp")
 
 
 class SavedReportListResponse(BaseModel):
     """Response with list of saved reports."""
     reports: List[SavedReportResponse] = Field(..., description="List of reports")
-    count: int = Field(..., description="Total count")
+    count: int = Field(..., description="Count of returned reports")
+    total: int = Field(..., description="Total matching records count")
+    limit: int = Field(default=50, description="Pagination limit")
+    offset: int = Field(default=0, description="Pagination offset")
 
 
 class ReportRetrieveResponse(BaseModel):
     """Response when retrieving a saved report."""
     id: int = Field(..., description="Report ID")
+    report_id: str = Field(..., description="Report unique identifier")
     ticker: str = Field(..., description="Stock ticker")
+    company_name: Optional[str] = Field(None, description="Company name")
     report_type: str = Field(..., description="Report type")
     content: str = Field(..., description="Report content")
+    structured_sections: Optional[Dict[str, Any]] = Field(None, description="Structured sections")
+    sources: Optional[List[Dict[str, Any]]] = Field(None, description="Sources and references")
     generated_at: str = Field(..., description="Generation timestamp")
+
+
+class DeleteReportResponse(BaseModel):
+    """Response when deleting a report."""
+    success: bool = Field(..., description="Whether deletion was successful")
+    message: str = Field(..., description="Result message")
+    report_id: str = Field(..., description="ID of deleted report")
 
 
 # Explanation Endpoints

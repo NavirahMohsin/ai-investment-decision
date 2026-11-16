@@ -15,6 +15,7 @@ from app.api.routes import (
 )
 from app.api.routes.research import research_router
 from app.api.routes.explanations import explanations_router
+from app.api.routes.intelligence import router as intelligence_router
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.services.refresh import refresh_live_quotes, refresh_market_data
@@ -71,12 +72,13 @@ async def lifespan(app: FastAPI):
         logger.info("Fundamentals scheduler initialized")
     
     # News ingestion scheduler
-    logger.info("Initializing news scheduler...")
-    initialize_news_scheduler(
-        interval_hours=24,  # Every 24 hours
-        auto_start=True,
-    )
-    logger.info("News scheduler initialized")
+    if settings.ENABLE_NEWS_SCHEDULER:
+        logger.info("Initializing news scheduler...")
+        initialize_news_scheduler(
+            interval_hours=24,  # Every 24 hours
+            auto_start=True,
+        )
+        logger.info("News scheduler initialized")
     
     yield
     
@@ -88,8 +90,9 @@ async def lifespan(app: FastAPI):
     if settings.ENABLE_FUNDAMENTALS_SCHEDULER:
         logger.info("Stopping fundamentals scheduler...")
         shutdown_fundamentals_scheduler(timeout=5.0)
-    logger.info("Stopping news scheduler...")
-    shutdown_news_scheduler(timeout=5.0)
+    if settings.ENABLE_NEWS_SCHEDULER:
+        logger.info("Stopping news scheduler...")
+        shutdown_news_scheduler(timeout=5.0)
     logger.info("Shutdown complete")
 
 
@@ -118,6 +121,7 @@ app.include_router(assistant_router)
 app.include_router(research_router)
 app.include_router(explanations_router)
 app.include_router(agents_router)
+app.include_router(intelligence_router)
 
 
 @app.get("/")

@@ -1,3 +1,8 @@
+import os
+os.environ["TESTING"] = "1"
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+os.environ["LANGCHAIN_API_KEY"] = ""
+
 from collections.abc import Generator
 
 import pytest
@@ -5,6 +10,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import Session, sessionmaker
+
+from app.core.config import settings
+settings.ENABLE_MARKET_SCHEDULER = False
+settings.ENABLE_FUNDAMENTALS_SCHEDULER = False
+settings.ENABLE_NEWS_SCHEDULER = False
 
 from app.db.models import Base
 from app.db.session import enable_sqlite_foreign_keys, get_db

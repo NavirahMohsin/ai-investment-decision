@@ -454,3 +454,56 @@ class Prediction(Base):
     current_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     prediction_date: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+
+
+class ResearchReport(Base):
+    """Store generated financial research reports."""
+    __tablename__ = "research_reports"
+    __table_args__ = (
+        Index("ix_research_reports_ticker_created", "ticker", "created_at"),
+        Index("ix_research_reports_report_type", "report_type"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    ticker: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    company_name: Mapped[str | None] = mapped_column(String(200))
+    report_type: Mapped[str] = mapped_column(String(50), nullable=False, default="comprehensive")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    structured_sections: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    sources: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    generated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class BacktestRun(Base):
+    """Store historical backtesting runs and performance metrics."""
+    __tablename__ = "backtest_runs"
+    __table_args__ = (
+        Index("ix_backtest_runs_ticker_created", "ticker", "created_at"),
+        Index("ix_backtest_runs_strategy", "strategy_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    backtest_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    ticker: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    model_id: Mapped[str | None] = mapped_column(String(100))
+    strategy_name: Mapped[str] = mapped_column(String(100), nullable=False, default="ML_Strategy")
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    initial_capital: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    final_value: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    total_return: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
+    annual_return: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
+    max_drawdown: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
+    sharpe_ratio: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    win_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    profit_factor: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    num_trades: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    equity_curve: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    trades: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utc_now)
+

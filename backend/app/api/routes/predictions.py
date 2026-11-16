@@ -20,7 +20,16 @@ from app.schemas.prediction import (
     ModelListResponseSchema,
     ModelMetadataSchema,
     HealthCheckResponseSchema,
+    PredictionHistoryResponseSchema,
+    ModelEvaluationRequestSchema,
+    ModelEvaluationResponseSchema,
+    ModelComparisonRequestSchema,
+    ModelComparisonResponseSchema,
+    BacktestRequestSchema,
+    BacktestResponseSchema,
+    BacktestListResponseSchema,
 )
+from app.services.model_evaluation_service import ModelEvaluationService
 
 logger = logging.getLogger(__name__)
 
@@ -264,3 +273,156 @@ async def predict_watchlist(
     except Exception as e:
         logger.error(f"Watchlist prediction failed: {e}")
         raise HTTPException(status_code=500, detail="Watchlist prediction failed")
+
+
+def get_evaluation_service(
+    model_server: ModelServer = Depends(get_model_server),
+) -> ModelEvaluationService:
+    """Build evaluation/backtesting service."""
+    return ModelEvaluationService(model_server)
+
+
+@router.get("/history", response_model=PredictionHistoryResponseSchema)
+async def prediction_history(
+    symbol: str | None = Query(default=None),
+    model_id: str | None = Query(default=None, description="Unused filter reserved for string model ids"),
+    horizon_days: int | None = Query(default=None, ge=1, le=20),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    prediction_service: PredictionService = Depends(get_prediction_service),
+) -> dict:
+    """Return paginated persisted prediction history."""
+    try:
+        items, total = prediction_service.get_prediction_history(
+            db=db,
+            symbol=symbol,
+            model_id=model_id,
+            horizon_days=horizon_days,
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "predictions": items,
+            "count": len(items),
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        logger.error(f"Prediction history failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve prediction history")
+
+
+@router.post("/evaluate", response_model=ModelEvaluationResponseSchema)
+async def evaluate_model(
+    request: ModelEvaluationRequestSchema,
+    db: Session = Depends(get_db),
+    evaluation_service: ModelEvaluationService = Depends(get_evaluation_service),
+) -> dict:
+    """Evaluate a registered model with genuine out-of-sample metrics."""
+    try:
+        return evaluation_service.evaluate_model(
+            db=db,
+            model_id=request.model_id,
+            symbol=request.symbol,
+            horizon_days=request.horizon_days,
+            version=request.version,
+            evaluation_type=request.evaluation_type,  # type: ignore[arg-type]
+            test_size=request.test_size,
+            start_date=request.start_date,
+            end_date=request.end_date,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Model not found: {request.model_id}")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Model evaluation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Model evaluation failed: {str(e)}")
+
+
+@router.post("/compare", response_model=ModelComparisonResponseSchema)
+async def compare_models(
+    request: ModelComparisonRequestSchema,
+    db: Session = Depends(get_db),
+    evaluation_service: ModelEvaluationService = Depends(get_evaluation_service),
+) -> dict:
+    """Compare multiple registered models on a shared holdout window."""
+    try:
+        return evaluation_service.compare_models(
+            db=db,
+            model_ids=request.model_ids,
+            symbol=request.symbol,
+            horizon_days=request.horizon_days,
+            version=request.version,
+            test_size=request.test_size,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Model comparison failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Model comparison failed: {str(e)}")
+
+
+@router.post("/backtest", response_model=BacktestResponseSchema)
+async def run_backtest(
+    request: BacktestRequestSchema,
+    db: Session = Depends(get_db),
+    evaluation_service: ModelEvaluationService = Depends(get_evaluation_service),
+) -> dict:
+    """Execute and persist an ML strategy backtest."""
+    try:
+        return evaluation_service.run_backtest(
+            db=db,
+            symbol=request.symbol,
+            model_id=request.model_id or "latest",
+            horizon_days=request.horizon_days,
+            initial_capital=request.initial_capital,
+            commission=request.commission,
+            slippage=request.slippage,
+            start_date=request.start_date,
+            end_date=request.end_date,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Backtest failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Backtest failed: {str(e)}")
+
+
+@router.get("/backtests", response_model=BacktestListResponseSchema)
+async def list_backtests(
+    symbol: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    evaluation_service: ModelEvaluationService = Depends(get_evaluation_service),
+) -> dict:
+    """List persisted backtest runs."""
+    try:
+        items, total = evaluation_service.list_backtests(
+            db=db, symbol=symbol, limit=limit, offset=offset
+        )
+        return {"backtests": items, "total": total}
+    except Exception as e:
+        logger.error(f"List backtests failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list backtests")
+
+
+@router.get("/backtests/{backtest_id}", response_model=BacktestResponseSchema)
+async def get_backtest(
+    backtest_id: str,
+    db: Session = Depends(get_db),
+    evaluation_service: ModelEvaluationService = Depends(get_evaluation_service),
+) -> dict:
+    """Retrieve a single persisted backtest."""
+    try:
+        return evaluation_service.get_backtest(db, backtest_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Get backtest failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve backtest")

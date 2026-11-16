@@ -114,3 +114,170 @@ class HealthCheckResponseSchema(BaseModel):
     models_available: int = Field(..., description="Number of available models")
     latest_prediction_timestamp: Optional[str] = None
     service_ready: bool
+
+
+class PredictionHistoryItemSchema(BaseModel):
+    """Item in prediction history log."""
+    id: int
+    prediction_id: str
+    company_id: int
+    symbol: str
+    model_id: Optional[Any] = None
+    horizon_days: int
+    predicted_class: str
+    confidence: float
+    probabilities: Optional[dict[str, float]] = None
+    as_of_date: str
+    current_price: Optional[float] = None
+    prediction_date: str
+    created_at: str
+
+
+class PredictionHistoryResponseSchema(BaseModel):
+    """Paginated prediction history response."""
+    predictions: list[PredictionHistoryItemSchema]
+    count: int
+    total: int
+    limit: int
+    offset: int
+
+
+class ModelEvaluationRequestSchema(BaseModel):
+    """Request to evaluate a registered model out-of-sample."""
+    model_id: str = Field(..., min_length=1, description="Registered model identifier")
+    symbol: str = Field(..., min_length=1, max_length=50, description="Evaluation symbol")
+    horizon_days: int = Field(default=1, description="Prediction horizon (1, 5, or 20)")
+    version: str = Field(default="latest", description="Model version")
+    evaluation_type: str = Field(
+        default="holdout_oos",
+        description="holdout_oos or walk_forward",
+    )
+    test_size: float = Field(default=0.2, ge=0.1, le=0.5, description="Holdout fraction")
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+    @field_validator("horizon_days")
+    @classmethod
+    def validate_eval_horizon(cls, v: int) -> int:
+        if v not in (1, 5, 20):
+            raise ValueError("horizon_days must be 1, 5, or 20")
+        return v
+
+    @field_validator("evaluation_type")
+    @classmethod
+    def validate_eval_type(cls, v: str) -> str:
+        allowed = {"holdout_oos", "walk_forward"}
+        if v not in allowed:
+            raise ValueError(f"evaluation_type must be one of {sorted(allowed)}")
+        return v
+
+
+class ModelEvaluationResponseSchema(BaseModel):
+    """Detailed model evaluation response."""
+    model_id: str
+    model_type: str
+    version: str
+    symbol: Optional[str] = None
+    horizon_days: Optional[int] = None
+    evaluation_type: str
+    metrics: dict[str, Any]
+    confusion_matrix: Optional[list[list[int]]] = None
+    confusion_matrix_labels: Optional[list[str]] = None
+    class_metrics: Optional[dict[str, Any]] = None
+    financial_metrics: Optional[dict[str, Any]] = None
+    validation_window: dict[str, Any]
+    disclaimer: str
+
+
+class ModelComparisonRequestSchema(BaseModel):
+    """Request to compare multiple models on a shared evaluation set."""
+    model_ids: list[str] = Field(..., min_length=2, max_length=8)
+    symbol: str = Field(..., min_length=1, max_length=50)
+    horizon_days: int = Field(default=1)
+    version: str = Field(default="latest")
+    test_size: float = Field(default=0.2, ge=0.1, le=0.5)
+
+    @field_validator("horizon_days")
+    @classmethod
+    def validate_cmp_horizon(cls, v: int) -> int:
+        if v not in (1, 5, 20):
+            raise ValueError("horizon_days must be 1, 5, or 20")
+        return v
+
+
+class ModelComparisonResponseSchema(BaseModel):
+    """Multi-model comparison response."""
+    symbol: Optional[str] = None
+    horizon_days: Optional[int] = None
+    comparable_dataset: Optional[bool] = None
+    models: list[dict[str, Any]]
+    benchmark_model_id: Optional[str] = None
+    comparison_table: list[dict[str, Any]]
+    errors: Optional[list[dict[str, Any]]] = None
+    disclaimer: str
+
+
+class BacktestRequestSchema(BaseModel):
+    """Request to execute trading strategy backtest."""
+    symbol: str = Field(..., description="Stock symbol to backtest")
+    model_id: Optional[str] = Field(default="latest", description="Model ID or strategy")
+    horizon_days: int = Field(default=1, description="Prediction horizon (1, 5, or 20)")
+    initial_capital: float = Field(default=100000.0, gt=0, description="Starting capital in INR")
+    commission: float = Field(default=0.001, ge=0, le=0.05, description="Brokerage commission rate (0.001 = 0.1%)")
+    slippage: float = Field(default=0.0005, ge=0, le=0.05, description="Execution slippage (0.0005 = 0.05%)")
+    start_date: Optional[date] = Field(None, description="Backtest start date")
+    end_date: Optional[date] = Field(None, description="Backtest end date")
+
+    @field_validator("horizon_days")
+    @classmethod
+    def validate_backtest_horizon(cls, v: int) -> int:
+        if v not in (1, 5, 20):
+            raise ValueError("horizon_days must be 1, 5, or 20")
+        return v
+
+    @field_validator("symbol")
+    @classmethod
+    def validate_backtest_symbol(cls, v: str) -> str:
+        cleaned = v.strip().upper()
+        if not cleaned:
+            raise ValueError("symbol is required")
+        return cleaned
+
+
+class BacktestTradeSchema(BaseModel):
+    """Record of an individual executed backtest trade."""
+    date: str
+    direction: str
+    price: float
+    quantity: float
+    value: float
+    commission: float
+
+
+class BacktestResponseSchema(BaseModel):
+    """Complete result of a strategy backtest."""
+    backtest_id: str
+    symbol: str
+    model_id: Optional[str] = None
+    strategy_name: str
+    start_date: str
+    end_date: str
+    initial_capital: float
+    final_value: float
+    total_return: float
+    annual_return: float
+    max_drawdown: float
+    sharpe_ratio: Optional[float] = None
+    win_rate: Optional[float] = None
+    profit_factor: Optional[float] = None
+    num_trades: int
+    equity_curve: list[dict[str, Any]]
+    trades: list[BacktestTradeSchema]
+    disclaimer: str
+
+
+class BacktestListResponseSchema(BaseModel):
+    """List of persisted backtest runs."""
+    backtests: list[dict[str, Any]]
+    total: int
+

@@ -188,7 +188,8 @@ class BacktestEngine:
                 execution_price = price * (1 - self.config.slippage)
                 trade_value = position * execution_price
                 commission = trade_value * self.config.commission
-                
+                sold_quantity = position
+
                 cash += trade_value - commission
                 position = 0
                 
@@ -196,7 +197,7 @@ class BacktestEngine:
                     date=current_date,
                     direction="SELL",
                     price=execution_price,
-                    quantity=position,
+                    quantity=sold_quantity,
                     value=trade_value,
                     commission=commission,
                 ))

@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     FUNDAMENTALS_AGING_DAYS: int = 90
     FUNDAMENTALS_MAX_COMPANIES_PER_RUN: int = 25
 
+    # News ingestion scheduler
+    ENABLE_NEWS_SCHEDULER: bool = True
+
 
 settings = Settings()
 
