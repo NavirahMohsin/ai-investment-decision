@@ -1,4 +1,5 @@
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -36,6 +37,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup and shutdown."""
+    if os.getenv("TESTING") == "1":
+        yield
+        return
+
     # Startup
     logger.info("Starting ArthAI application...")
     

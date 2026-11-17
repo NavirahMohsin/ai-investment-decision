@@ -220,9 +220,16 @@ export function UnifiedStockIntelligence({ symbol, companyName }: UnifiedStockIn
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Technical */}
                 <div className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-semibold">
-                    <BarChart3 className="size-4 text-cyan-400" />
-                    Technical Analysis
+                  <div className="flex items-center justify-between text-xs font-semibold">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="size-4 text-cyan-400" />
+                      Technical Analysis
+                    </div>
+                    {technical?.freshness && (
+                      <Badge variant="outline" className="text-[10px] capitalize">
+                        {technical.freshness}
+                      </Badge>
+                    )}
                   </div>
                   {technical?.status !== 'available' ? (
                     <SectionUnavailable reason={technical?.reason} />
@@ -242,6 +249,12 @@ export function UnifiedStockIntelligence({ symbol, companyName }: UnifiedStockIn
                           ATR-14: <strong className="font-mono">{technical.atr_14 ?? '—'}</strong>
                         </div>
                         <div className="rounded bg-card border border-border p-2">
+                          EMA-20: <strong className="font-mono">{formatINR(technical.ema_20)}</strong>
+                        </div>
+                        <div className="rounded bg-card border border-border p-2">
+                          EMA-50: <strong className="font-mono">{formatINR(technical.ema_50)}</strong>
+                        </div>
+                        <div className="rounded bg-card border border-border p-2">
                           Vol: <strong className="font-mono">{formatPct(technical.annualized_volatility_pct)}</strong>
                         </div>
                         <div className="rounded bg-card border border-border p-2">
@@ -253,6 +266,10 @@ export function UnifiedStockIntelligence({ symbol, companyName }: UnifiedStockIn
                           {technical.trend.explanation}
                         </p>
                       )}
+                      <div className="flex justify-between items-center text-[10px] text-muted-foreground pt-1 border-t border-border/40">
+                        <span>Source: {technical.source || 'daily_market_data'}</span>
+                        <span>Window: {technical.data_window_days ?? 0} days</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -434,15 +451,25 @@ export function UnifiedStockIntelligence({ symbol, companyName }: UnifiedStockIn
 
               {agentInsights?.status === 'available' && (
                 <div className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold">
-                    <Activity className="size-4 text-emerald-400" />
-                    Research Insights
+                  <div className="flex items-center justify-between text-xs font-semibold">
+                    <div className="flex items-center gap-2">
+                      <Activity className="size-4 text-emerald-400" />
+                      Research Insights
+                    </div>
+                    <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-500/30">
+                      Persisted Reports
+                    </Badge>
                   </div>
                   <ul className="space-y-2 text-xs">
                     {(agentInsights.insights || []).map((insight: any) => (
                       <li key={insight.report_id} className="rounded bg-card border border-border p-2.5">
                         <div className="flex justify-between gap-2 mb-1">
-                          <span className="font-medium">{insight.report_type}</span>
+                          <span className="font-medium flex items-center gap-1.5">
+                            {insight.report_type}
+                            {insight.is_persisted && (
+                              <span className="text-[9px] bg-muted px-1 py-0.5 rounded text-muted-foreground">Stored</span>
+                            )}
+                          </span>
                           <span className="text-[10px] text-muted-foreground">
                             {insight.generated_at
                               ? new Date(insight.generated_at).toLocaleString('en-IN')

@@ -201,6 +201,8 @@ export interface BacktestResultData {
   equity_curve: Array<{ date: string; value: number }>;
   trades: BacktestTrade[];
   disclaimer: string;
+  persisted?: boolean;
+  persist_error?: string | null;
 }
 
 export interface IntelligenceSection {
@@ -258,6 +260,13 @@ export interface ModelEvaluationResult {
   financial_metrics?: Record<string, any> | null;
   validation_window: Record<string, any>;
   disclaimer: string;
+  evaluation_method?: string | null;
+  retraining_per_fold?: boolean | null;
+  training_cutoff_unknown?: boolean | null;
+  data_leakage_risk?: string | null;
+  note?: string | null;
+  persisted?: boolean;
+  persist_error?: string | null;
 }
 
 export interface ModelComparisonResult {
@@ -269,6 +278,8 @@ export interface ModelComparisonResult {
   comparison_table: Array<Record<string, any>>;
   errors?: Array<{ model_id: string; error: string }>;
   disclaimer: string;
+  persisted?: boolean;
+  persist_error?: string | null;
 }
 
 export interface BatchPredictionResponse {

@@ -387,6 +387,22 @@ class ModelEvaluationService:
 
         if evaluation_type == "holdout_oos":
             split = self._chronological_holdout(X, y, prices, dates, horizon_days, test_size)
+
+            # Training cutoff / data leakage check
+            test_start_date = split["test_start"]
+            leakage_warnings: dict[str, Any] = {}
+            if metadata.training_cutoff_date is not None:
+                if test_start_date <= metadata.training_cutoff_date:
+                    raise ValueError(
+                        f"Evaluation period {test_start_date} overlaps with training data "
+                        f"(cutoff: {metadata.training_cutoff_date})"
+                    )
+            else:
+                leakage_warnings["training_cutoff_unknown"] = True
+                leakage_warnings["data_leakage_risk"] = (
+                    "Cannot verify chronological separation — model training dates unknown"
+                )
+
             y_pred, y_proba = self._predict_frame(model, scaler, metadata, split["X_test"])
             payload = self._metrics_payload(
                 split["y_test"].values, y_pred, y_proba, split["prices_test"], list(metadata.classes or [])
@@ -398,7 +414,9 @@ class ModelEvaluationService:
                 "symbol": symbol.strip().upper(),
                 "horizon_days": horizon_days,
                 "evaluation_type": "holdout_oos",
+                "evaluation_method": "holdout_oos_frozen_model",
                 **payload,
+                **leakage_warnings,
                 "validation_window": {
                     "train_start": split["train_start"].isoformat(),
                     "train_end": split["train_end"].isoformat(),
@@ -415,6 +433,22 @@ class ModelEvaluationService:
         # Walk-forward scoring of the frozen model on sequential OOS windows
         config = EvaluationConfig(train_size=0.6, val_size=0.2, test_size=0.2, walk_forward_step=max(20, horizon_days * 4))
         splitter = TemporalSplitter(config)
+
+        # Training cutoff / data leakage check for walk-forward
+        wf_leakage_warnings: dict[str, Any] = {}
+        if metadata.training_cutoff_date is not None:
+            first_test_start = dates.iloc[int(len(X) * 0.6)].date()
+            if first_test_start <= metadata.training_cutoff_date:
+                raise ValueError(
+                    f"Evaluation period {first_test_start} overlaps with training data "
+                    f"(cutoff: {metadata.training_cutoff_date})"
+                )
+        else:
+            wf_leakage_warnings["training_cutoff_unknown"] = True
+            wf_leakage_warnings["data_leakage_risk"] = (
+                "Cannot verify chronological separation — model training dates unknown"
+            )
+
         # Use TemporalSplitter.split for initial windows via walk_forward_splits
         # Build a synthetic DataFrame with DatetimeIndex for splitter compatibility
         X_idx = X.copy()
@@ -473,7 +507,10 @@ class ModelEvaluationService:
             "symbol": symbol.strip().upper(),
             "horizon_days": horizon_days,
             "evaluation_type": "walk_forward",
+            "evaluation_method": "walk_forward_frozen_model",
+            "retraining_per_fold": False,
             **aggregate,
+            **wf_leakage_warnings,
             "validation_window": {
                 "folds": fold_metrics,
                 "n_folds": len(fold_metrics),
@@ -484,6 +521,7 @@ class ModelEvaluationService:
                     "look-ahead but is not identical to retrain-each-fold validation."
                 ),
             },
+            "note": "Walk-forward evaluation uses the frozen registered model. Scores may be optimistic for fold-specific retraining.",
             "disclaimer": EVAL_DISCLAIMER,
         }
 
@@ -613,15 +651,55 @@ class ModelEvaluationService:
         dates_bt = split["dates_test"]
 
         y_pred, _ = self._predict_frame(model, scaler, metadata, X_bt)
-        signals = pd.Series(
-            [
+
+        # Standardize target backtest evaluation index
+        bt_index = pd.DatetimeIndex(pd.to_datetime(dates_bt)).drop_duplicates().sort_values()
+
+        # Build raw signals with appropriate date index based on prediction shape
+        if isinstance(y_pred, pd.Series) and isinstance(y_pred.index, pd.DatetimeIndex):
+            raw_signal_values = [
+                1 if _normalize_label(p) == "positive"
+                else (-1 if _normalize_label(p) == "negative" else 0)
+                for p in y_pred.values
+            ]
+            raw_signals_series = pd.Series(raw_signal_values, index=y_pred.index)
+        elif len(y_pred) == len(dates):
+            raw_signal_values = [
                 1 if _normalize_label(p) == "positive"
                 else (-1 if _normalize_label(p) == "negative" else 0)
                 for p in y_pred
-            ],
-            index=pd.DatetimeIndex(dates_bt),
-        )
-        price_series = pd.Series(prices_bt.values, index=pd.DatetimeIndex(dates_bt))
+            ]
+            raw_signals_series = pd.Series(raw_signal_values, index=pd.DatetimeIndex(pd.to_datetime(dates)))
+        elif len(y_pred) == len(dates_bt):
+            raw_signal_values = [
+                1 if _normalize_label(p) == "positive"
+                else (-1 if _normalize_label(p) == "negative" else 0)
+                for p in y_pred
+            ]
+            raw_signals_series = pd.Series(raw_signal_values, index=bt_index)
+        else:
+            raw_signal_values = [
+                1 if _normalize_label(p) == "positive"
+                else (-1 if _normalize_label(p) == "negative" else 0)
+                for p in y_pred
+            ]
+            available_dates = bt_index[:len(raw_signal_values)] if len(raw_signal_values) <= len(bt_index) else bt_index
+            raw_signals_series = pd.Series(raw_signal_values[:len(available_dates)], index=available_dates)
+
+        # Align signals and prices strictly by timestamps/index
+        full_price_series = pd.Series(
+            prices.values, index=pd.DatetimeIndex(pd.to_datetime(dates))
+        ).groupby(level=0).last()
+        price_series = full_price_series.reindex(bt_index)
+        signals = raw_signals_series.groupby(level=0).last().reindex(bt_index).fillna(0).astype(int)
+
+        # Safe handling of missing dates/prices and chronological ordering
+        valid_mask = price_series.notna() & signals.notna()
+        price_series = price_series.loc[valid_mask].sort_index()
+        signals = signals.loc[price_series.index].astype(int)
+
+        if len(price_series) < 2:
+            raise ValueError("Insufficient historical data for backtesting after date alignment")
 
         engine = BacktestEngine(
             BacktestConfig(
@@ -675,6 +753,8 @@ class ModelEvaluationService:
         }
 
         # Persist
+        persisted = False
+        persist_error: str | None = None
         try:
             row = BacktestRun(
                 backtest_id=backtest_id,
@@ -708,9 +788,15 @@ class ModelEvaluationService:
             )
             db.add(row)
             db.commit()
+            persisted = True
         except Exception as exc:
             db.rollback()
+            persist_error = str(exc)
             logger.warning("Failed to persist backtest %s: %s", backtest_id, exc)
+
+        payload["persisted"] = persisted
+        if persist_error is not None:
+            payload["persist_error"] = persist_error
 
         return payload
 

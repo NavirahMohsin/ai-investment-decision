@@ -79,6 +79,7 @@ class ModelMetadataSchema(BaseModel):
     feature_count: int
     classes: list[str]
     description: Optional[str] = None
+    training_cutoff_date: Optional[date] = None
     
     class Config:
         from_attributes = True
@@ -187,6 +188,10 @@ class ModelEvaluationResponseSchema(BaseModel):
     financial_metrics: Optional[dict[str, Any]] = None
     validation_window: dict[str, Any]
     disclaimer: str
+    evaluation_method: Optional[str] = None
+    retraining_per_fold: Optional[bool] = None
+    training_cutoff_unknown: Optional[bool] = None
+    data_leakage_risk: Optional[str] = None
 
 
 class ModelComparisonRequestSchema(BaseModel):
@@ -274,6 +279,10 @@ class BacktestResponseSchema(BaseModel):
     equity_curve: list[dict[str, Any]]
     trades: list[BacktestTradeSchema]
     disclaimer: str
+    training_cutoff_date: Optional[date] = None
+    data_leakage_risk: Optional[str] = None
+    persisted: Optional[bool] = None
+    persist_error: Optional[str] = None
 
 
 class BacktestListResponseSchema(BaseModel):

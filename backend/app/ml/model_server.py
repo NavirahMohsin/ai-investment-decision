@@ -14,12 +14,13 @@ Features:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 import pickle
 import logging
+import re
 
 import numpy as np
 import pandas as pd
@@ -75,6 +76,7 @@ class ModelMetadata:
     hyperparameters: dict[str, Any] = field(default_factory=dict)
     training_data_size: int = 0
     description: Optional[str] = None
+    training_cutoff_date: Optional[date] = None
     
     def to_dict(self) -> dict[str, Any]:
         """Convert metadata to dictionary."""
@@ -94,6 +96,7 @@ class ModelMetadata:
             "hyperparameters": self.hyperparameters,
             "training_data_size": self.training_data_size,
             "description": self.description,
+            "training_cutoff_date": self.training_cutoff_date.isoformat() if self.training_cutoff_date else None,
         }
 
 
@@ -239,7 +242,44 @@ class ModelServer:
             model, metadata = self.model_cache[cache_key]
             scaler = self.scaler_cache.get(cache_key)
             return model, metadata, scaler
-        
+
+        # If version == "latest", resolve latest available version if literal "{model_id}_latest.pkl" does not exist
+        if version == "latest":
+            explicit_latest = self.model_dir / f"{model_id}_latest.pkl"
+            if not explicit_latest.exists():
+                cached_versions = [
+                    k[len(f"{model_id}_"):]
+                    for k in self.model_cache
+                    if k.startswith(f"{model_id}_") and k != f"{model_id}_latest"
+                ]
+                metadata_files = [
+                    p for p in self.model_dir.glob(f"{model_id}_*_metadata.pkl")
+                    if not p.name.endswith("_latest_metadata.pkl")
+                ]
+                versions_found = set(cached_versions)
+                for p in metadata_files:
+                    stem = p.name[:-len("_metadata.pkl")]
+                    if stem.startswith(f"{model_id}_"):
+                        versions_found.add(stem[len(f"{model_id}_"):])
+
+                if versions_found:
+                    def _v_sort_key(ver_str: str):
+                        try:
+                            clean = re.sub(r"[^\d.]", "", ver_str)
+                            parts = [int(x) for x in clean.split(".") if x.isdigit()]
+                            if parts:
+                                return (0, parts)
+                        except Exception:
+                            pass
+                        return (1, ver_str)
+
+                    latest_ver = max(versions_found, key=_v_sort_key)
+                    model, metadata, scaler = self.load_model(model_id, latest_ver)
+                    self.model_cache[f"{model_id}_latest"] = (model, metadata)
+                    if scaler is not None:
+                        self.scaler_cache[f"{model_id}_latest"] = scaler
+                    return model, metadata, scaler
+
         # Load from disk
         model_path = self.model_dir / f"{cache_key}.pkl"
         metadata_path = self.model_dir / f"{cache_key}_metadata.pkl"

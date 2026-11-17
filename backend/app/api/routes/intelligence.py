@@ -8,7 +8,7 @@ Each section is isolated so a single failure never breaks the whole payload.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,9 @@ from app.db.models import (
     NewsArticle,
     NewsArticleCompany,
     NewsSource,
+    Prediction,
     ResearchReport,
+    Sector,
 )
 from app.schemas.intelligence import UnifiedStockIntelligenceResponse
 from app.services.indicators import IndicatorParameters, calculate_indicators
@@ -69,12 +71,19 @@ async def get_unified_stock_intelligence(
     if not company:
         raise HTTPException(status_code=404, detail=f"Company '{sym}' not found")
 
+    # Derive industry from Sector.industry_name via company.sector_id if available
+    industry: str | None = None
+    if company.sector_id:
+        sector_row = db.query(Sector).filter(Sector.id == company.sector_id).first()
+        if sector_row:
+            industry = sector_row.industry_name
+
     warnings: list[str] = []
     result: dict[str, Any] = {
         "symbol": sym,
         "company_name": company.name,
         "sector": company.sector,
-        "industry": company.industry,
+        "industry": industry,
         "exchange": company.exchange,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "disclaimer": DISCLAIMER,
@@ -151,9 +160,20 @@ async def get_unified_stock_intelligence(
         )
         rows_tech = list(reversed(rows_tech))
         if len(rows_tech) >= 30:
-            params = IndicatorParameters()
-            records, _, _, _ = calculate_indicators(rows_tech, params)
-            latest_rec = records[-1] if records else {}
+            # EMA-20
+            params_20 = IndicatorParameters(ema_period=20)
+            records_20, _, _, _ = calculate_indicators(rows_tech, params_20)
+            latest_rec = records_20[-1] if records_20 else {}
+
+            # EMA-50 (separate call with ema_period=50)
+            ema_50_val = None
+            try:
+                params_50 = IndicatorParameters(ema_period=50)
+                records_50, _, _, _ = calculate_indicators(rows_tech, params_50)
+                if records_50:
+                    ema_50_val = _safe_float(records_50[-1].get("ema"))
+            except Exception as ema50_exc:
+                logger.debug("EMA-50 computation failed for %s: %s", sym, ema50_exc)
 
             closes = pd.Series(
                 [_safe_float(r.close) for r in rows_tech], dtype=float
@@ -173,6 +193,19 @@ async def get_unified_stock_intelligence(
             drawdown = (closes - cummax) / cummax
             max_dd = float(drawdown.min()) if not drawdown.empty else None
 
+            # Freshness label for technical data
+            tech_as_of = rows_tech[-1].trading_date if rows_tech else None
+            if tech_as_of:
+                tech_age = (datetime.now(timezone.utc).date() - tech_as_of).days
+                if tech_age <= 1:
+                    tech_freshness = "fresh"
+                elif tech_age <= 5:
+                    tech_freshness = "delayed"
+                else:
+                    tech_freshness = "stale"
+            else:
+                tech_freshness = "unknown"
+
             trend_payload = None
             if latest_rec.get("close") is not None:
                 trend = classify_trend(
@@ -189,7 +222,7 @@ async def get_unified_stock_intelligence(
 
             signals = []
             try:
-                raw_signals = generate_signals(rows_tech, params)
+                raw_signals = generate_signals(rows_tech, params_20)
                 signals = [
                     {
                         "signal_type": s.signal_type,
@@ -207,7 +240,7 @@ async def get_unified_stock_intelligence(
                 "status": "available",
                 "rsi_14": _safe_float(latest_rec.get("rsi")),
                 "ema_20": _safe_float(latest_rec.get("ema")),
-                "ema_50": None,
+                "ema_50": ema_50_val,
                 "macd": _safe_float(latest_rec.get("macd")),
                 "macd_signal": _safe_float(latest_rec.get("macd_signal")),
                 "bb_upper": _safe_float(latest_rec.get("bollinger_upper")),
@@ -218,7 +251,8 @@ async def get_unified_stock_intelligence(
                 "data_window_days": len(rows_tech),
                 "signals": signals,
                 "trend": trend_payload,
-                "source": "indicators+signals",
+                "source": "daily_market_data",
+                "freshness": tech_freshness,
             }
         else:
             result["technical_intelligence"] = _unavailable(
@@ -232,39 +266,48 @@ async def get_unified_stock_intelligence(
 
     # ── Fundamental intelligence ─────────────────────────────────────────────
     try:
-        fin = (
+        # CompanyFinancial is a metric-row table: pivot metric_name/metric_value pairs
+        fin_rows = (
             db.query(CompanyFinancial)
             .filter(CompanyFinancial.company_id == company.id)
             .order_by(CompanyFinancial.period_end.desc())
-            .first()
+            .all()
         )
         fund_info = (
             db.query(CompanyFundamentalInfo)
             .filter(CompanyFundamentalInfo.company_id == company.id)
             .first()
         )
-        if fin or fund_info:
+        if fin_rows or fund_info:
             fd: dict[str, Any] = {"status": "available", "source": "database"}
-            if fin:
-                fd["period_end"] = fin.period_end.isoformat() if fin.period_end else None
-                fd["revenue"] = _safe_float(fin.revenue)
-                fd["net_income"] = _safe_float(fin.net_income)
-                fd["ebitda"] = _safe_float(fin.ebitda)
-                fd["total_assets"] = _safe_float(fin.total_assets)
-                fd["total_equity"] = _safe_float(fin.total_equity)
-                fd["total_debt"] = _safe_float(fin.total_debt)
-                fd["operating_cash_flow"] = _safe_float(fin.operating_cash_flow)
-                fd["free_cash_flow"] = _safe_float(fin.free_cash_flow)
-                fd["roe"] = _safe_float(fin.roe)
-                fd["roa"] = _safe_float(fin.roa)
-                fd["profit_margin"] = _safe_float(fin.profit_margin)
-                fd["debt_to_equity"] = _safe_float(fin.debt_to_equity)
-                fd["current_ratio"] = _safe_float(fin.current_ratio)
-                fd["pe_ratio"] = _safe_float(fin.pe_ratio)
+            if fin_rows:
+                # Build metric dict from the most recent period's rows
+                # Group by period_end, pick latest
+                latest_period = fin_rows[0].period_end  # already ordered desc
+                period_rows = [r for r in fin_rows if r.period_end == latest_period]
+                metrics: dict[str, Any] = {
+                    r.metric_name: r.metric_value for r in period_rows
+                }
+                fd["period_end"] = latest_period.isoformat() if latest_period else None
+                fd["revenue"] = _safe_float(metrics.get("revenue"))
+                fd["net_income"] = _safe_float(metrics.get("net_income"))
+                fd["ebitda"] = _safe_float(metrics.get("ebitda"))
+                fd["total_assets"] = _safe_float(metrics.get("total_assets"))
+                fd["total_equity"] = _safe_float(metrics.get("total_equity"))
+                fd["total_debt"] = _safe_float(metrics.get("total_debt"))
+                fd["operating_cash_flow"] = _safe_float(metrics.get("operating_cash_flow"))
+                fd["free_cash_flow"] = _safe_float(metrics.get("free_cash_flow"))
+                fd["roe"] = _safe_float(metrics.get("roe"))
+                fd["roa"] = _safe_float(metrics.get("roa"))
+                fd["profit_margin"] = _safe_float(metrics.get("profit_margin"))
+                fd["debt_to_equity"] = _safe_float(metrics.get("debt_to_equity"))
+                fd["current_ratio"] = _safe_float(metrics.get("current_ratio"))
+                fd["pe_ratio"] = _safe_float(metrics.get("pe_ratio"))
             if fund_info:
+                # CompanyFundamentalInfo actual columns: market_cap, enterprise_value, employees
                 fd["market_cap"] = _safe_float(fund_info.market_cap)
-                fd["book_value_per_share"] = _safe_float(fund_info.book_value_per_share)
-                fd["dividend_yield"] = _safe_float(fund_info.dividend_yield)
+                fd["enterprise_value"] = _safe_float(fund_info.enterprise_value)
+                fd["employees"] = fund_info.employees
             result["fundamental_intelligence"] = fd
         else:
             result["fundamental_intelligence"] = _unavailable(
@@ -352,26 +395,67 @@ async def get_unified_stock_intelligence(
 
         if models_list:
             best = max(models_list, key=lambda m: m.get("accuracy") or 0)
-            ps = PredictionService(ms)
-            req = PredictionRequest(
-                symbol=sym,
-                model_id=best["model_id"],
-                model_version="latest",
-                horizon_days=1,
+
+            # Determine the latest market date for cache key
+            latest_mkt_row = (
+                db.query(DailyMarketData)
+                .filter(DailyMarketData.company_id == company.id)
+                .order_by(DailyMarketData.trading_date.desc())
+                .first()
             )
-            pred = ps.predict_for_symbol(db, req)
-            result["ml_intelligence"] = {
-                "status": "available",
-                "model_id": pred.model_id,
-                "model_type": best.get("model_type", "unknown"),
-                "predicted_class": pred.predicted_class,
-                "confidence": round(pred.confidence, 4),
-                "probabilities": pred.probabilities,
-                "horizon_days": pred.horizon_days,
-                "as_of_date": pred.as_of_date.isoformat(),
-                "model_accuracy": best.get("accuracy"),
-                "source": "model_server",
-            }
+            latest_market_date = latest_mkt_row.trading_date if latest_mkt_row else None
+
+            # Cache check: reuse an existing prediction if made within last 24h
+            cached_pred = None
+            if latest_market_date is not None:
+                cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+                cached_pred = (
+                    db.query(Prediction)
+                    .filter(
+                        Prediction.company_id == company.id,
+                        Prediction.as_of_date == latest_market_date,
+                        Prediction.created_at >= cutoff,
+                    )
+                    .order_by(Prediction.created_at.desc())
+                    .first()
+                )
+
+            if cached_pred is not None:
+                result["ml_intelligence"] = {
+                    "status": "available",
+                    "model_id": cached_pred.prediction_id,
+                    "model_type": best.get("model_type", "unknown"),
+                    "predicted_class": cached_pred.predicted_class,
+                    "confidence": round(float(cached_pred.confidence), 4),
+                    "probabilities": cached_pred.probabilities,
+                    "horizon_days": cached_pred.horizon_days,
+                    "as_of_date": cached_pred.as_of_date.isoformat(),
+                    "model_accuracy": best.get("accuracy"),
+                    "source": "model_server",
+                    "cached": True,
+                }
+            else:
+                ps = PredictionService(ms)
+                req = PredictionRequest(
+                    symbol=sym,
+                    model_id=best["model_id"],
+                    model_version="latest",
+                    horizon_days=1,
+                )
+                pred = ps.predict_for_symbol(db, req)
+                result["ml_intelligence"] = {
+                    "status": "available",
+                    "model_id": pred.model_id,
+                    "model_type": best.get("model_type", "unknown"),
+                    "predicted_class": pred.predicted_class,
+                    "confidence": round(pred.confidence, 4),
+                    "probabilities": pred.probabilities,
+                    "horizon_days": pred.horizon_days,
+                    "as_of_date": pred.as_of_date.isoformat(),
+                    "model_accuracy": best.get("accuracy"),
+                    "source": "model_server",
+                    "cached": False,
+                }
         else:
             result["ml_intelligence"] = _unavailable(
                 "No trained models found in models/ directory"
@@ -469,6 +553,7 @@ async def get_unified_stock_intelligence(
                         "generated_at": r.generated_at.isoformat() if r.generated_at else None,
                         "excerpt": (r.content or "")[:500],
                         "sources": r.sources,
+                        "is_persisted": True,
                     }
                     for r in reports
                 ],

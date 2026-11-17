@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import os
+os.environ["TESTING"] = "1"
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+os.environ["LANGCHAIN_API_KEY"] = ""
+
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -12,6 +17,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sklearn.ensemble import RandomForestClassifier
 from sqlalchemy.orm import Session
+
+from app.core.config import settings
+settings.ENABLE_MARKET_SCHEDULER = False
+settings.ENABLE_FUNDAMENTALS_SCHEDULER = False
+settings.ENABLE_NEWS_SCHEDULER = False
 
 from app.db.models import Company, DailyMarketData, MLModel, Prediction
 from app.db.session import get_db
@@ -59,7 +69,6 @@ def seeded_db(db_session: Session) -> Session:
         provider_symbol="RELIANCE.NS",
         exchange="NSE",
         sector="Energy",
-        industry="Oil & Gas",
         instrument_type="equity",
         is_active=True,
     )

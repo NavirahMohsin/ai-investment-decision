@@ -74,6 +74,19 @@ class LLMService:
             return self.groq_available
         return False
 
+    def is_available(self) -> bool:
+        """Check if any LLM provider is available."""
+        if os.getenv("TESTING") == "1":
+            return False
+        return self.gemini_available or self.groq_available
+
+    def generate_text(self, prompt: str, max_tokens: int = 500) -> str:
+        """Convenience method to generate plain text."""
+        if os.getenv("TESTING") == "1":
+            return "Simulated investment synthesis for testing."
+        res = self.generate(prompt=prompt, max_tokens=max_tokens)
+        return res.content if res else ""
+
     def _call_gemini(
         self,
         prompt: str,

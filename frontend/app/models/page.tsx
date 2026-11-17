@@ -671,10 +671,44 @@ export default function ModelsEvaluationPage() {
                     )}
                     {evaluation.financial_metrics && (
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                        <div>Return: <strong className="font-mono">{evaluation.financial_metrics.total_return ?? '—'}%</strong></div>
-                        <div>Max DD: <strong className="font-mono">{evaluation.financial_metrics.max_drawdown ?? '—'}%</strong></div>
-                        <div>Sharpe: <strong className="font-mono">{evaluation.financial_metrics.sharpe_ratio ?? '—'}</strong></div>
+                        <div>
+                          Return:{' '}
+                          <strong className={`font-mono ${(evaluation.financial_metrics.total_return ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {(evaluation.financial_metrics.total_return ?? 0) >= 0 ? '+' : ''}
+                            {typeof evaluation.financial_metrics.total_return === 'number'
+                              ? evaluation.financial_metrics.total_return.toFixed(2)
+                              : evaluation.financial_metrics.total_return ?? '—'}%
+                          </strong>
+                        </div>
+                        <div>
+                          Max DD:{' '}
+                          <strong className="font-mono text-rose-400">
+                            {typeof evaluation.financial_metrics.max_drawdown === 'number'
+                              ? `-${Math.abs(evaluation.financial_metrics.max_drawdown).toFixed(2)}%`
+                              : `${evaluation.financial_metrics.max_drawdown ?? '—'}%`}
+                          </strong>
+                        </div>
+                        <div>
+                          Sharpe:{' '}
+                          <strong className="font-mono">
+                            {typeof evaluation.financial_metrics.sharpe_ratio === 'number'
+                              ? evaluation.financial_metrics.sharpe_ratio.toFixed(2)
+                              : evaluation.financial_metrics.sharpe_ratio ?? '—'}
+                          </strong>
+                        </div>
                         <div>Trades: <strong className="font-mono">{evaluation.financial_metrics.num_trades ?? '—'}</strong></div>
+                      </div>
+                    )}
+                    {evaluation.data_leakage_risk && (
+                      <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-300 flex items-center gap-2">
+                        <AlertTriangle className="size-3.5 shrink-0" />
+                        <span>Data integrity note: {evaluation.data_leakage_risk}</span>
+                      </div>
+                    )}
+                    {evaluation.evaluation_method && (
+                      <div className="text-[10px] text-muted-foreground">
+                        Method: <span className="font-mono">{evaluation.evaluation_method}</span>
+                        {evaluation.retraining_per_fold === false && ' (frozen model)'}
                       </div>
                     )}
                     <p className="text-[10px] text-muted-foreground">{evaluation.disclaimer}</p>
@@ -705,12 +739,16 @@ export default function ModelsEvaluationPage() {
                         {comparison.comparison_table.map((row) => (
                           <tr key={row.model_id} className="border-b border-border/40">
                             <td className="py-1.5 font-mono">{row.model_id}</td>
-                            <td className="text-right font-mono">{((row.accuracy || 0) * 100).toFixed(1)}</td>
-                            <td className="text-right font-mono">{((row.precision || 0) * 100).toFixed(1)}</td>
-                            <td className="text-right font-mono">{((row.recall || 0) * 100).toFixed(1)}</td>
-                            <td className="text-right font-mono">{((row.f1 || 0) * 100).toFixed(1)}</td>
-                            <td className="text-right font-mono">{row.total_return ?? '—'}</td>
-                            <td className="text-right font-mono">{row.max_drawdown ?? '—'}</td>
+                            <td className="text-right font-mono">{((row.accuracy || 0) * 100).toFixed(1)}%</td>
+                            <td className="text-right font-mono">{((row.precision || 0) * 100).toFixed(1)}%</td>
+                            <td className="text-right font-mono">{((row.recall || 0) * 100).toFixed(1)}%</td>
+                            <td className="text-right font-mono">{((row.f1 || 0) * 100).toFixed(1)}%</td>
+                            <td className={`text-right font-mono ${(row.total_return ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {row.total_return != null ? `${row.total_return >= 0 ? '+' : ''}${row.total_return.toFixed(2)}%` : '—'}
+                            </td>
+                            <td className="text-right font-mono text-rose-400">
+                              {row.max_drawdown != null ? `-${Math.abs(row.max_drawdown).toFixed(2)}%` : '—'}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -725,15 +763,50 @@ export default function ModelsEvaluationPage() {
                       <strong className="font-mono">{backtest.strategy_name}</strong>
                       <span className="text-[10px] text-muted-foreground">{backtest.backtest_id.slice(0, 8)}…</span>
                     </div>
+
+                    {backtest.persisted === false && (
+                      <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-300 flex items-center gap-2">
+                        <AlertTriangle className="size-4 shrink-0" />
+                        <span>Simulation completed, but persistence to database failed: {backtest.persist_error || 'Database write error'}. This run was not saved to history.</span>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <div className="rounded bg-muted/30 p-2">
                         Final <strong className="block font-mono">₹{backtest.final_value.toLocaleString('en-IN')}</strong>
                       </div>
                       <div className="rounded bg-muted/30 p-2">
-                        Return <strong className="block font-mono">{backtest.total_return.toFixed(2)}%</strong>
+                        Return{' '}
+                        <strong className={`block font-mono ${backtest.total_return >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {backtest.total_return >= 0 ? '+' : ''}{backtest.total_return.toFixed(2)}%
+                        </strong>
                       </div>
                       <div className="rounded bg-muted/30 p-2">
-                        Max DD <strong className="block font-mono">{backtest.max_drawdown.toFixed(2)}%</strong>
+                        Annual Return{' '}
+                        <strong className={`block font-mono ${backtest.annual_return >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {backtest.annual_return >= 0 ? '+' : ''}{backtest.annual_return.toFixed(2)}%
+                        </strong>
+                      </div>
+                      <div className="rounded bg-muted/30 p-2">
+                        Max DD <strong className="block font-mono text-rose-400">-{Math.abs(backtest.max_drawdown).toFixed(2)}%</strong>
+                      </div>
+                      <div className="rounded bg-muted/30 p-2">
+                        Win Rate{' '}
+                        <strong className="block font-mono">
+                          {backtest.win_rate != null ? `${backtest.win_rate.toFixed(1)}%` : '—'}
+                        </strong>
+                      </div>
+                      <div className="rounded bg-muted/30 p-2">
+                        Sharpe Ratio{' '}
+                        <strong className="block font-mono">
+                          {backtest.sharpe_ratio != null ? backtest.sharpe_ratio.toFixed(2) : '—'}
+                        </strong>
+                      </div>
+                      <div className="rounded bg-muted/30 p-2">
+                        Profit Factor{' '}
+                        <strong className="block font-mono">
+                          {backtest.profit_factor != null ? backtest.profit_factor.toFixed(2) : '—'}
+                        </strong>
                       </div>
                       <div className="rounded bg-muted/30 p-2">
                         Trades <strong className="block font-mono">{backtest.num_trades}</strong>
@@ -778,7 +851,9 @@ export default function ModelsEvaluationPage() {
                       >
                         <div className="flex justify-between gap-2">
                           <span className="font-mono">{bt.symbol}</span>
-                          <span className="font-mono text-emerald-400">{bt.total_return.toFixed(2)}%</span>
+                          <span className={`font-mono ${bt.total_return >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {bt.total_return >= 0 ? '+' : ''}{bt.total_return.toFixed(2)}%
+                          </span>
                         </div>
                         <div className="text-[10px] text-muted-foreground">
                           {bt.strategy_name} · {bt.start_date} → {bt.end_date}
